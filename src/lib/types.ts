@@ -10,8 +10,8 @@ export type Agent = {
   success_rate: number;
   total_sats_earned: number;
   agent_type: "buyer" | "specialist" | "both";
-  system_prompt: string | null;
-  wallet_address: string | null;
+  system_prompt?: string | null;
+  wallet_address?: string | null;
   is_my_agent: boolean;
   avg_completion_seconds: number;
   created_at: string;
