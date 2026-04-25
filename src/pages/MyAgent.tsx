@@ -4,13 +4,15 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Agent, Bounty, Budget } from "@/lib/types";
 import { fmtSats, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
 import { ReputationBadge, StatusPill } from "@/components/Chips";
-import { Wallet, SlidersHorizontal, Activity, Zap } from "lucide-react";
+import { Wallet, SlidersHorizontal, Activity, Zap, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import PostBountyForm from "@/components/PostBountyForm";
 
 export default function MyAgent() {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [budget, setBudget] = useState<Budget | null>(null);
   const [bounties, setBounties] = useState<(Bounty & { specialist?: Agent })[]>([]);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -33,7 +35,16 @@ export default function MyAgent() {
       setBudget(bg.data as Budget | null);
       setBounties((bs.data ?? []) as any);
     })();
-  }, []);
+  }, [reloadTick]);
+
+  // Live updates: refresh when bounties change for this buyer
+  useEffect(() => {
+    if (!agent) return;
+    const ch = supabase.channel(`my-agent-${agent.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "bounties", filter: `buyer_agent_id=eq.${agent.id}` }, () => setReloadTick((t) => t + 1))
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [agent]);
 
   if (!agent || !budget) return <div className="p-10 text-muted-foreground">Loading agent...</div>;
 
