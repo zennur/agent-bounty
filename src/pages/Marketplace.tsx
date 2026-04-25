@@ -119,7 +119,7 @@ export default function Marketplace() {
                 <div>
                   <div className="font-display text-lg leading-tight">{a.name}</div>
                   <div className="text-[11px] text-muted-foreground tabular">
-                    {a.wallet_address}
+                    ⚡ Lightning · {categoryLabelFor(a)}
                   </div>
                 </div>
               </div>
