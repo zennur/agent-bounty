@@ -1,16 +1,81 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Agent, Bounty } from "@/lib/types";
 import { fmtSats, fmtCompact, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
 import { CategoryChip, ReputationBadge, StatusPill } from "@/components/Chips";
-import { ArrowLeft, Zap, Clock, Trophy, Wallet, CalendarDays } from "lucide-react";
+import { ArrowLeft, Zap, Clock, Trophy, Wallet, CalendarDays, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 export default function AgentProfile() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [bounties, setBounties] = useState<(Bounty & { buyer?: Agent })[]>([]);
+  const [hireOpen, setHireOpen] = useState(false);
+  const [myAgents, setMyAgents] = useState<Agent[]>([]);
+  const [buyerAgentId, setBuyerAgentId] = useState<string>("");
+  const [title, setTitle] = useState("");
+  const [desc, setDesc] = useState("");
+  const [price, setPrice] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!user) { setMyAgents([]); return; }
+    (async () => {
+      const { data } = await supabase
+        .from("agents_owner_view")
+        .select("*")
+        .eq("user_id", user.id);
+      const list = ((data ?? []) as unknown) as Agent[];
+      // Don't allow hiring yourself
+      const filtered = list.filter((a) => a.id !== id);
+      setMyAgents(filtered);
+      if (filtered[0]) setBuyerAgentId(filtered[0].id);
+    })();
+  }, [user, id]);
+
+  useEffect(() => {
+    if (agent) setPrice(agent.base_price_sats);
+  }, [agent]);
+
+  const submitHire = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agent) return;
+    if (!user) { navigate("/auth"); return; }
+    if (!buyerAgentId) {
+      toast.error("Register an agent first to hire others.");
+      return;
+    }
+    if (title.trim().length < 3) {
+      toast.error("Title is too short");
+      return;
+    }
+    setBusy(true);
+    const category = agent.categories[0] ?? "research";
+    const { error } = await supabase.from("bounties").insert({
+      buyer_agent_id: buyerAgentId,
+      specialist_agent_id: agent.id,
+      title: title.trim(),
+      description: desc.trim() || null,
+      category,
+      max_price_sats: price,
+      status: "open",
+    });
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Bounty sent to ${agent.name}.`);
+    setHireOpen(false);
+    setTitle("");
+    setDesc("");
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -57,7 +122,13 @@ export default function AgentProfile() {
               <span className="text-primary">⚡</span> {agent.runtime === "hosted" ? "Hosted by GroundTruth" : "External agent"}
             </div>
           </div>
-          <button className="bg-primary text-primary-foreground font-display text-sm px-5 py-3 hover:shadow-amber transition-all flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (!user) { navigate("/auth"); return; }
+              setHireOpen(true);
+            }}
+            className="bg-primary text-primary-foreground font-display text-sm px-5 py-3 hover:shadow-amber transition-all flex items-center gap-2"
+          >
             <Zap className="h-4 w-4 fill-current" />
             HIRE DIRECTLY
           </button>
@@ -108,6 +179,85 @@ export default function AgentProfile() {
           </pre>
         </div>
       </div>
+
+      <Dialog open={hireOpen} onOpenChange={setHireOpen}>
+        <DialogContent className="bg-surface border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display uppercase tracking-widest text-base flex items-center gap-2">
+              <Zap className="h-4 w-4 text-primary fill-current" /> Hire {agent.name}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Posts a bounty assigned directly to this specialist. They'll be notified instantly.
+            </DialogDescription>
+          </DialogHeader>
+
+          {myAgents.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-4">
+              You need to register a buyer agent first.{" "}
+              <Link to="/register" className="text-primary underline">Register one →</Link>
+            </div>
+          ) : (
+            <form onSubmit={submitHire} className="space-y-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Acting as</div>
+                <select
+                  value={buyerAgentId}
+                  onChange={(e) => setBuyerAgentId(e.target.value)}
+                  className="w-full bg-background border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                >
+                  {myAgents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.avatar} {a.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Task title</div>
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={`e.g. ${categoryLabel(agent.categories[0] ?? "research")} this for me`}
+                  className="w-full bg-background border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  maxLength={200}
+                />
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Details (optional)</div>
+                <textarea
+                  value={desc}
+                  onChange={(e) => setDesc(e.target.value)}
+                  rows={4}
+                  placeholder="Paste content, links, or context for the specialist."
+                  className="w-full bg-background border border-border px-3 py-2 text-xs font-mono leading-relaxed resize-y focus:border-primary focus:outline-none"
+                  maxLength={2000}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-3 items-end">
+                <div className="col-span-2">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
+                    Max price (sats) · asking {fmtSats(agent.base_price_sats)}
+                  </div>
+                  <input
+                    type="number"
+                    min={10}
+                    max={1_000_000}
+                    value={price}
+                    onChange={(e) => setPrice(Number(e.target.value))}
+                    className="w-full bg-background border border-border px-3 py-2 font-display text-primary tabular text-lg focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="bg-primary text-primary-foreground font-display px-4 py-2.5 hover:shadow-amber transition flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+                >
+                  {busy ? <Zap className="h-4 w-4 animate-bolt" /> : <Plus className="h-4 w-4" />}
+                  {busy ? "SENDING..." : "SEND"}
+                </button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
