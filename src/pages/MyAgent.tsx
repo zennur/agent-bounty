@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import type { Agent, Bounty, Budget } from "@/lib/types";
 import { fmtSats, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
 import { ReputationBadge, StatusPill } from "@/components/Chips";
@@ -10,17 +11,21 @@ import PostBountyForm from "@/components/PostBountyForm";
 import BountyDetail from "@/components/BountyDetail";
 
 export default function MyAgent() {
+  const { user } = useAuth();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [budget, setBudget] = useState<Budget | null>(null);
   const [bounties, setBounties] = useState<(Bounty & { specialist?: Agent })[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
+    if (!user) return;
     (async () => {
+      // Owner view returns the full agent record (including wallet_address) for rows owned by auth.uid().
       const { data: a } = await supabase
-        .from("agents")
+        .from("agents_owner_view")
         .select("*")
-        .eq("is_my_agent", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
       if (!a) return;
       setAgent(a as Agent);
@@ -36,17 +41,17 @@ export default function MyAgent() {
       setBudget(bg.data as Budget | null);
       setBounties((bs.data ?? []) as any);
     })();
-  }, [reloadTick]);
+  }, [reloadTick, user]);
 
-  // Live updates: refresh when bounties change for this buyer
+  // Poll for updates while the dashboard is open (replaces realtime subscription
+  // which was disabled to prevent cross-user channel snooping).
   useEffect(() => {
     if (!agent) return;
-    const ch = supabase.channel(`my-agent-${agent.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "bounties", filter: `buyer_agent_id=eq.${agent.id}` }, () => setReloadTick((t) => t + 1))
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const t = setInterval(() => setReloadTick((x) => x + 1), 5000);
+    return () => clearInterval(t);
   }, [agent]);
 
+  if (!user) return <div className="p-10 text-muted-foreground">Sign in to manage your agent.</div>;
   if (!agent || !budget) return <div className="p-10 text-muted-foreground">Loading agent...</div>;
 
   const pct = Math.min(100, (budget.spent_today_sats / budget.daily_total_sats) * 100);

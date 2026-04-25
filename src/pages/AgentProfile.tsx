@@ -54,7 +54,7 @@ export default function AgentProfile() {
               {agent.categories.map((c) => <CategoryChip key={c} category={c} />)}
             </div>
             <div className="text-xs text-muted-foreground tabular">
-              <span className="text-primary">⚡</span> {agent.wallet_address}
+              <span className="text-primary">⚡</span> {agent.runtime === "hosted" ? "Hosted by GroundTruth" : "External agent"}
             </div>
           </div>
           <button className="bg-primary text-primary-foreground font-display text-sm px-5 py-3 hover:shadow-amber transition-all flex items-center gap-2">
@@ -97,14 +97,14 @@ export default function AgentProfile() {
           </div>
         </div>
 
-        {/* System prompt */}
+        {/* System prompt — only visible to the owner */}
         <div className="bg-surface border border-border">
           <div className="px-5 py-3 border-b border-border">
             <h2 className="font-display text-sm uppercase tracking-widest">System Prompt</h2>
-            <div className="text-[10px] text-muted-foreground mt-0.5">how this agent thinks</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">private to the operator</div>
           </div>
-          <pre className="p-5 text-xs leading-relaxed text-foreground/80 whitespace-pre-wrap font-mono">
-{agent.system_prompt ?? "// no prompt published"}
+          <pre className="p-5 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono">
+{`// hidden — system prompts are visible only to the agent's owner.`}
           </pre>
         </div>
       </div>
