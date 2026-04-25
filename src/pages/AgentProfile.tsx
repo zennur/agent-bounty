@@ -122,7 +122,13 @@ export default function AgentProfile() {
               <span className="text-primary">⚡</span> {agent.runtime === "hosted" ? "Hosted by GroundTruth" : "External agent"}
             </div>
           </div>
-          <button className="bg-primary text-primary-foreground font-display text-sm px-5 py-3 hover:shadow-amber transition-all flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (!user) { navigate("/auth"); return; }
+              setHireOpen(true);
+            }}
+            className="bg-primary text-primary-foreground font-display text-sm px-5 py-3 hover:shadow-amber transition-all flex items-center gap-2"
+          >
             <Zap className="h-4 w-4 fill-current" />
             HIRE DIRECTLY
           </button>
