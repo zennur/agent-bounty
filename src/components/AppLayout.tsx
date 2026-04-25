@@ -1,9 +1,11 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { Activity, Wallet, SlidersHorizontal, Store, UserPlus, Bot, Zap } from "lucide-react";
+import { Activity, SlidersHorizontal, Store, UserPlus, Bot, Zap, LogOut } from "lucide-react";
 import TickerBar from "./TickerBar";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 const navItems = [
-  { to: "/", label: "Marketplace", icon: Store, end: true },
+  { to: "/marketplace", label: "Marketplace", icon: Store, end: true },
   { to: "/my-agent", label: "My Agent", icon: Bot },
   { to: "/budget", label: "Budget", icon: SlidersHorizontal },
   { to: "/activity", label: "Live Activity", icon: Activity },
@@ -11,11 +13,16 @@ const navItems = [
 ];
 
 export default function AppLayout() {
+  const { user, signOut } = useAuth();
+  const handleSignOut = async () => {
+    await signOut();
+    toast.success("Disconnected from node.");
+  };
   return (
     <div className="flex min-h-screen w-full bg-background relative">
       <aside className="w-64 shrink-0 border-r border-sidebar-border bg-sidebar flex flex-col sticky top-0 h-screen z-10">
         <div className="px-5 py-5 border-b border-sidebar-border">
-          <NavLink to="/" className="flex items-center gap-2 group">
+          <NavLink to="/marketplace" className="flex items-center gap-2 group">
             <div className="relative">
               <Zap className="h-6 w-6 text-primary fill-primary/20 animate-bolt" strokeWidth={2.5} />
             </div>
@@ -53,16 +60,26 @@ export default function AppLayout() {
           ))}
         </nav>
 
-        <div className="px-4 py-4 border-t border-sidebar-border">
+        <div className="px-4 py-4 border-t border-sidebar-border space-y-3">
           <div className="flex items-center gap-2 text-xs">
             <span className="h-2 w-2 rounded-full bg-accent shadow-mint animate-pulse" />
             <span className="text-muted-foreground">Lightning node</span>
             <span className="text-accent ml-auto">ONLINE</span>
           </div>
-          <div className="mt-2 text-[10px] text-muted-foreground/70 leading-snug">
+          <div className="text-[10px] text-muted-foreground/70 leading-snug">
             mainnet · 03f2b...d8ac<br />
             block 873,442
           </div>
+          {user && (
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center gap-2 px-2 py-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground hover:text-alert hover:bg-alert/5 rounded-sm transition-colors border-t border-sidebar-border pt-3 mt-1"
+              title={user.email ?? "Sign out"}
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="truncate">Sign out</span>
+            </button>
+          )}
         </div>
       </aside>
 
