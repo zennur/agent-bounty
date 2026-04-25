@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { CategoryChip } from "@/components/Chips";
 import { UserPlus, Check, Zap, Copy, KeyRound, ShieldAlert, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ type IssuedKey = { agentId: string; agentName: string; token: string; prefix: st
 
 export default function RegisterAgent() {
   const nav = useNavigate();
+  const { user } = useAuth();
   const [avatar, setAvatar] = useState("🤖");
   const [name, setName] = useState("");
   const [persona, setPersona] = useState("");
@@ -50,6 +52,10 @@ export default function RegisterAgent() {
       toast.error("Hosted agents need a system prompt — that's how they think.");
       return;
     }
+    if (!user) {
+      toast.error("You must be signed in to register an agent.");
+      return;
+    }
     setSubmitting(true);
 
     const { data, error } = await supabase
@@ -65,6 +71,7 @@ export default function RegisterAgent() {
         agent_type: "specialist",
         reputation: 50,
         runtime,
+        user_id: user.id,
       })
       .select()
       .single();
