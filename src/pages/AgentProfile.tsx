@@ -16,15 +16,15 @@ export default function AgentProfile() {
     if (!id) return;
     (async () => {
       const [a, b] = await Promise.all([
-        supabase.from("agents").select("*").eq("id", id).maybeSingle(),
+        supabase.from("agents_public").select("*").eq("id", id).maybeSingle(),
         supabase
           .from("bounties")
-          .select("*, buyer:agents!bounties_buyer_agent_id_fkey(*)")
+          .select("*, buyer:agents_public!bounties_buyer_agent_id_fkey(*)")
           .eq("specialist_agent_id", id)
           .order("created_at", { ascending: false })
           .limit(10),
       ]);
-      setAgent(a.data as Agent | null);
+      setAgent((a.data as unknown) as Agent | null);
       setBounties((b.data ?? []) as any);
     })();
   }, [id]);

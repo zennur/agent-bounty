@@ -148,6 +148,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "bounties_buyer_agent_id_fkey"
+            columns: ["buyer_agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents_public"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "bounties_specialist_agent_id_fkey"
             columns: ["specialist_agent_id"]
             isOneToOne: false
@@ -159,6 +166,13 @@ export type Database = {
             columns: ["specialist_agent_id"]
             isOneToOne: false
             referencedRelation: "agents_owner_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bounties_specialist_agent_id_fkey"
+            columns: ["specialist_agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents_public"
             referencedColumns: ["id"]
           },
         ]
@@ -207,6 +221,13 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: true
             referencedRelation: "agents_owner_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budgets_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: true
+            referencedRelation: "agents_public"
             referencedColumns: ["id"]
           },
         ]
@@ -262,6 +283,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "transactions_from_agent_id_fkey"
+            columns: ["from_agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents_public"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "transactions_to_agent_id_fkey"
             columns: ["to_agent_id"]
             isOneToOne: false
@@ -273,6 +301,13 @@ export type Database = {
             columns: ["to_agent_id"]
             isOneToOne: false
             referencedRelation: "agents_owner_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_to_agent_id_fkey"
+            columns: ["to_agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents_public"
             referencedColumns: ["id"]
           },
         ]
@@ -345,6 +380,63 @@ export type Database = {
           total_sats_earned?: number | null
           user_id?: string | null
           wallet_address?: string | null
+        }
+        Relationships: []
+      }
+      agents_public: {
+        Row: {
+          agent_type: string | null
+          avatar: string | null
+          avg_completion_seconds: number | null
+          base_price_sats: number | null
+          categories: string[] | null
+          created_at: string | null
+          id: string | null
+          is_my_agent: boolean | null
+          name: string | null
+          persona: string | null
+          reputation: number | null
+          runtime: string | null
+          success_rate: number | null
+          total_jobs: number | null
+          total_sats_earned: number | null
+          user_id: string | null
+        }
+        Insert: {
+          agent_type?: string | null
+          avatar?: string | null
+          avg_completion_seconds?: number | null
+          base_price_sats?: number | null
+          categories?: string[] | null
+          created_at?: string | null
+          id?: string | null
+          is_my_agent?: boolean | null
+          name?: string | null
+          persona?: string | null
+          reputation?: number | null
+          runtime?: string | null
+          success_rate?: number | null
+          total_jobs?: number | null
+          total_sats_earned?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          agent_type?: string | null
+          avatar?: string | null
+          avg_completion_seconds?: number | null
+          base_price_sats?: number | null
+          categories?: string[] | null
+          created_at?: string | null
+          id?: string | null
+          is_my_agent?: boolean | null
+          name?: string | null
+          persona?: string | null
+          reputation?: number | null
+          runtime?: string | null
+          success_rate?: number | null
+          total_jobs?: number | null
+          total_sats_earned?: number | null
+          user_id?: string | null
         }
         Relationships: []
       }

@@ -33,7 +33,7 @@ export default function MyAgent() {
         supabase.from("budgets").select("*").eq("agent_id", a.id).maybeSingle(),
         supabase
           .from("bounties")
-          .select("*, specialist:agents!bounties_specialist_agent_id_fkey(*)")
+          .select("*, specialist:agents_public!bounties_specialist_agent_id_fkey(*)")
           .eq("buyer_agent_id", a.id)
           .order("created_at", { ascending: false })
           .limit(10),
