@@ -17,7 +17,7 @@ export default function Marketplace() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase
-        .from("agents")
+        .from("agents_public")
         .select("*")
         .neq("agent_type", "buyer")
         .order("reputation", { ascending: false });

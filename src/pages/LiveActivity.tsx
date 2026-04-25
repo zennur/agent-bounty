@@ -26,7 +26,7 @@ export default function LiveActivity() {
   // Load agents lookup + initial transactions
   useEffect(() => {
     (async () => {
-      const { data: ags } = await supabase.from("agents").select("*");
+      const { data: ags } = await supabase.from("agents_public").select("*");
       const map: Record<string, Agent> = {};
       (ags ?? []).forEach((a: any) => { map[a.id] = a; });
       setAgents(map);
