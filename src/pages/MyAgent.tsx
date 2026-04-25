@@ -7,6 +7,7 @@ import { ReputationBadge, StatusPill } from "@/components/Chips";
 import { Wallet, SlidersHorizontal, Activity, Zap, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import PostBountyForm from "@/components/PostBountyForm";
+import BountyDetail from "@/components/BountyDetail";
 
 export default function MyAgent() {
   const [agent, setAgent] = useState<Agent | null>(null);
@@ -165,6 +166,23 @@ export default function MyAgent() {
           <PostBountyForm buyerAgentId={agent.id} onPosted={() => setReloadTick((t) => t + 1)} />
         </div>
       </div>
+
+      {/* Submissions awaiting attention or freshly verified */}
+      {bounties.filter((b) => ["submitted", "verified", "rejected"].includes(b.status)).length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-muted-foreground mb-3">
+            <Activity className="h-3 w-3 text-primary" /> Submissions & verdicts
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            {bounties
+              .filter((b) => ["submitted", "verified", "rejected"].includes(b.status))
+              .slice(0, 4)
+              .map((b) => (
+                <BountyDetail key={b.id} bounty={b} specialist={b.specialist ?? null} />
+              ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-surface border border-border">
         <div className="px-5 py-3 border-b border-border flex items-center gap-3">
