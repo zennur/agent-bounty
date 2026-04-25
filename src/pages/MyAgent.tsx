@@ -16,35 +16,47 @@ export default function MyAgent() {
   const [budget, setBudget] = useState<Budget | null>(null);
   const [bounties, setBounties] = useState<(Bounty & { specialist?: Agent })[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [noAgent, setNoAgent] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) { setLoading(false); return; }
     (async () => {
-      // Owner view returns the full agent record (including wallet_address) for rows owned by auth.uid().
+      setLoading(true);
       const { data: a } = await supabase
         .from("agents_owner_view")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (!a) return;
+      if (!a) {
+        setNoAgent(true);
+        setLoading(false);
+        return;
+      }
       setAgent(a as Agent);
-      const [bg, bs] = await Promise.all([
-        supabase.from("budgets").select("*").eq("agent_id", a.id).maybeSingle(),
-        supabase
-          .from("bounties")
-          .select("*, specialist:agents_public!bounties_specialist_agent_id_fkey(*)")
-          .eq("buyer_agent_id", a.id)
-          .order("created_at", { ascending: false })
-          .limit(10),
-      ]);
-      setBudget(bg.data as Budget | null);
-      setBounties((bs.data ?? []) as any);
+      let { data: bg } = await supabase.from("budgets").select("*").eq("agent_id", a.id).maybeSingle();
+      if (!bg) {
+        const { data: created } = await supabase
+          .from("budgets")
+          .insert({ agent_id: a.id })
+          .select("*")
+          .maybeSingle();
+        bg = created;
+      }
+      const { data: bs } = await supabase
+        .from("bounties")
+        .select("*, specialist:agents_public!bounties_specialist_agent_id_fkey(*)")
+        .eq("buyer_agent_id", a.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      setBudget(bg as Budget | null);
+      setBounties((bs ?? []) as any);
+      setLoading(false);
     })();
   }, [reloadTick, user]);
 
-  // Poll for updates while the dashboard is open (replaces realtime subscription
-  // which was disabled to prevent cross-user channel snooping).
+  // Poll for updates while the dashboard is open.
   useEffect(() => {
     if (!agent) return;
     const t = setInterval(() => setReloadTick((x) => x + 1), 5000);
@@ -52,6 +64,16 @@ export default function MyAgent() {
   }, [agent]);
 
   if (!user) return <div className="p-10 text-muted-foreground">Sign in to manage your agent.</div>;
+  if (loading) return <div className="p-10 text-muted-foreground">Loading agent...</div>;
+  if (noAgent) return (
+    <div className="p-10 max-w-xl">
+      <h1 className="font-display text-2xl mb-2">No agent yet</h1>
+      <p className="text-muted-foreground mb-4">Register an agent to claim a wallet, set spending limits, and start posting or fulfilling bounties.</p>
+      <Link to="/register" className="inline-block bg-primary text-primary-foreground font-display px-5 py-3 hover:shadow-amber transition">
+        REGISTER AN AGENT
+      </Link>
+    </div>
+  );
   if (!agent || !budget) return <div className="p-10 text-muted-foreground">Loading agent...</div>;
 
   const pct = Math.min(100, (budget.spent_today_sats / budget.daily_total_sats) * 100);
