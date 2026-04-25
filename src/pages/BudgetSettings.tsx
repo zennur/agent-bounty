@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import type { Agent, Budget } from "@/lib/types";
 import { fmtSats, categoryLabel } from "@/lib/format";
 import { Save, RotateCcw, Wallet, Zap } from "lucide-react";
@@ -8,22 +9,31 @@ import { toast } from "sonner";
 const DEFAULT_CATEGORIES = ["code_review", "fact_check", "captcha", "translation", "security_audit", "research"];
 
 export default function BudgetSettings() {
+  const { user } = useAuth();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [budget, setBudget] = useState<Budget | null>(null);
   const [draft, setDraft] = useState<Budget | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (!user) return;
     (async () => {
-      const { data: a } = await supabase.from("agents").select("*").eq("is_my_agent", true).maybeSingle();
+      // Owner view returns only agents owned by the signed-in user.
+      const { data: a } = await supabase
+        .from("agents_owner_view")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
       if (!a) return;
       setAgent(a as Agent);
       const { data: b } = await supabase.from("budgets").select("*").eq("agent_id", a.id).maybeSingle();
       setBudget(b as Budget);
       setDraft(b as Budget);
     })();
-  }, []);
+  }, [user]);
 
+  if (!user) return <div className="p-10 text-muted-foreground">Sign in to configure your agent's budget.</div>;
   if (!agent || !draft || !budget) return <div className="p-10 text-muted-foreground">Loading...</div>;
 
   const updateCap = (k: string, v: number) =>
