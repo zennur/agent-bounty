@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { CategoryChip } from "@/components/Chips";
-import { UserPlus, Check, Zap } from "lucide-react";
+import { UserPlus, Check, Zap, Copy, KeyRound, ShieldAlert, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -17,6 +17,8 @@ const schema = z.object({
   system_prompt: z.string().trim().max(2000).optional(),
 });
 
+type IssuedKey = { agentId: string; agentName: string; token: string; prefix: string };
+
 export default function RegisterAgent() {
   const nav = useNavigate();
   const [avatar, setAvatar] = useState("🤖");
@@ -26,7 +28,9 @@ export default function RegisterAgent() {
   const [price, setPrice] = useState(150);
   const [wallet, setWallet] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [runtime, setRuntime] = useState<"external" | "hosted">("external");
   const [submitting, setSubmitting] = useState(false);
+  const [issued, setIssued] = useState<IssuedKey | null>(null);
 
   const toggleCat = (c: string) =>
     setCats((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
@@ -42,7 +46,12 @@ export default function RegisterAgent() {
       toast.error("Pick at least one category");
       return;
     }
+    if (runtime === "hosted" && !prompt.trim()) {
+      toast.error("Hosted agents need a system prompt — that's how they think.");
+      return;
+    }
     setSubmitting(true);
+
     const { data, error } = await supabase
       .from("agents")
       .insert({
@@ -55,17 +64,37 @@ export default function RegisterAgent() {
         system_prompt: parsed.data.system_prompt || null,
         agent_type: "specialist",
         reputation: 50,
+        runtime,
       })
       .select()
       .single();
-    setSubmitting(false);
-    if (error) {
-      toast.error("Failed: " + error.message);
+
+    if (error || !data) {
+      setSubmitting(false);
+      toast.error("Failed: " + (error?.message ?? "unknown"));
       return;
     }
+
+    // Issue an API key for external agents (hosted ones don't strictly need one,
+    // but we issue one anyway so the operator can also drive it manually).
+    const { data: keyData, error: keyErr } = await supabase.functions.invoke("issue-agent-key", {
+      body: { agent_id: data.id },
+    });
+    setSubmitting(false);
+
+    if (keyErr || !keyData?.token) {
+      toast.error("Agent created, but key issuance failed. Rotate from agent profile.");
+      nav(`/agent/${data.id}`);
+      return;
+    }
+
+    setIssued({ agentId: data.id, agentName: parsed.data.name, token: keyData.token, prefix: keyData.prefix });
     toast.success(`${parsed.data.name} is live in the marketplace`);
-    nav(`/agent/${data.id}`);
   };
+
+  if (issued) {
+    return <KeyRevealScreen issued={issued} onContinue={() => nav(`/agent/${issued.agentId}`)} />;
+  }
 
   return (
     <div className="px-8 py-8 max-w-[1000px] mx-auto">
@@ -126,6 +155,25 @@ export default function RegisterAgent() {
           </div>
         </Field>
 
+        <Field label="Runtime — where does this agent execute?">
+          <div className="grid md:grid-cols-2 gap-3">
+            <RuntimeOption
+              active={runtime === "external"}
+              onClick={() => setRuntime("external")}
+              title="External"
+              tag="Polls the API"
+              body="Run this agent yourself in any language. It authenticates via API key and polls /agent-api/bounties for work."
+            />
+            <RuntimeOption
+              active={runtime === "hosted"}
+              onClick={() => setRuntime("hosted")}
+              title="Hosted"
+              tag="Lovable AI inside"
+              body="GroundTruth runs the agent for you using your system prompt. Bounties dispatch to it instantly."
+            />
+          </div>
+        </Field>
+
         <div className="grid md:grid-cols-2 gap-4">
           <Field label="Base price (sats per task)">
             <div className="flex items-center gap-2">
@@ -153,7 +201,7 @@ export default function RegisterAgent() {
           </Field>
         </div>
 
-        <Field label="System prompt (optional)">
+        <Field label={`System prompt ${runtime === "hosted" ? "(required for hosted)" : "(optional)"}`}>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -203,5 +251,94 @@ function Field({ label, children, className = "" }: any) {
       <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">{label}</div>
       {children}
     </label>
+  );
+}
+
+function RuntimeOption({
+  active, onClick, title, tag, body,
+}: { active: boolean; onClick: () => void; title: string; tag: string; body: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-left p-4 border transition ${active ? "border-primary bg-primary/5 shadow-amber" : "border-border hover:border-primary/40"}`}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <div className="font-display text-sm">{title}</div>
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{tag}</div>
+      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed">{body}</p>
+    </button>
+  );
+}
+
+function KeyRevealScreen({ issued, onContinue }: { issued: IssuedKey; onContinue: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(issued.token);
+    setCopied(true);
+    toast.success("API key copied");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="px-8 py-12 max-w-[820px] mx-auto">
+      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-muted-foreground mb-3">
+        <KeyRound className="h-3 w-3 text-primary" /> One-time secret
+      </div>
+      <h1 className="font-display text-4xl mb-2">{issued.agentName}'s API key</h1>
+      <p className="text-muted-foreground mb-6">
+        This is the only time the full key will be shown. Save it somewhere safe — you can rotate it later
+        from the agent profile.
+      </p>
+
+      <div className="bg-surface border border-primary/40 shadow-amber p-5 mb-4">
+        <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-2">
+          Bearer token · prefix {issued.prefix}
+        </div>
+        <div className="flex items-center gap-3">
+          <code className="flex-1 font-mono text-sm text-primary break-all bg-background border border-border p-3">
+            {issued.token}
+          </code>
+          <button
+            onClick={copy}
+            className="bg-primary text-primary-foreground font-display px-4 py-3 hover:shadow-amber transition flex items-center gap-2"
+          >
+            <Copy className="h-4 w-4" />
+            {copied ? "COPIED" : "COPY"}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-alert/5 border border-alert/30 p-4 mb-6 flex gap-3">
+        <ShieldAlert className="h-5 w-5 text-alert flex-shrink-0 mt-0.5" />
+        <div className="text-xs text-muted-foreground leading-relaxed">
+          <span className="text-alert font-display uppercase tracking-widest text-[10px] block mb-1">Heads up</span>
+          GroundTruth only stores a hash of this token. We literally cannot show it to you again. If you lose it,
+          rotate the key from the agent profile.
+        </div>
+      </div>
+
+      <div className="bg-surface border border-border p-5 mb-6">
+        <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-2">Quick test</div>
+        <pre className="font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+{`curl -H "Authorization: Bearer ${issued.token.slice(0, 20)}..." \\
+  ${import.meta.env.VITE_SUPABASE_URL}/functions/v1/agent-api/me`}
+        </pre>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <a href="/docs/agent-api" className="text-sm text-primary hover:underline">
+          Read the protocol docs →
+        </a>
+        <button
+          onClick={onContinue}
+          className="bg-primary text-primary-foreground font-display px-6 py-3 hover:shadow-amber transition flex items-center gap-2"
+        >
+          I've saved the key
+          <ArrowRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
   );
 }
