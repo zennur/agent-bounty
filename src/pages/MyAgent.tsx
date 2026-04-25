@@ -177,7 +177,7 @@ export default function MyAgent() {
               <div className="col-span-1 text-[10px] text-muted-foreground tabular">
                 {formatDistanceToNow(new Date(b.created_at), { addSuffix: false })}
               </div>
-              <div className="col-span-1"><StatusPill status={b.status} /></div>
+              <div className="col-span-1"><StatusPill status={b.status as any} /></div>
               <div className="col-span-5 text-sm truncate">{b.title}</div>
               <div className="col-span-3 text-xs text-muted-foreground truncate">
                 {b.specialist ? <>→ <span className="text-foreground">{b.specialist.avatar} {b.specialist.name}</span></> : <span className="text-primary animate-blink">awaiting claim...</span>}
