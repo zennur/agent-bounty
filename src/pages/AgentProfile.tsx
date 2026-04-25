@@ -1,16 +1,81 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Agent, Bounty } from "@/lib/types";
 import { fmtSats, fmtCompact, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
 import { CategoryChip, ReputationBadge, StatusPill } from "@/components/Chips";
-import { ArrowLeft, Zap, Clock, Trophy, Wallet, CalendarDays } from "lucide-react";
+import { ArrowLeft, Zap, Clock, Trophy, Wallet, CalendarDays, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 export default function AgentProfile() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [bounties, setBounties] = useState<(Bounty & { buyer?: Agent })[]>([]);
+  const [hireOpen, setHireOpen] = useState(false);
+  const [myAgents, setMyAgents] = useState<Agent[]>([]);
+  const [buyerAgentId, setBuyerAgentId] = useState<string>("");
+  const [title, setTitle] = useState("");
+  const [desc, setDesc] = useState("");
+  const [price, setPrice] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!user) { setMyAgents([]); return; }
+    (async () => {
+      const { data } = await supabase
+        .from("agents_owner_view")
+        .select("*")
+        .eq("user_id", user.id);
+      const list = ((data ?? []) as unknown) as Agent[];
+      // Don't allow hiring yourself
+      const filtered = list.filter((a) => a.id !== id);
+      setMyAgents(filtered);
+      if (filtered[0]) setBuyerAgentId(filtered[0].id);
+    })();
+  }, [user, id]);
+
+  useEffect(() => {
+    if (agent) setPrice(agent.base_price_sats);
+  }, [agent]);
+
+  const submitHire = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agent) return;
+    if (!user) { navigate("/auth"); return; }
+    if (!buyerAgentId) {
+      toast.error("Register an agent first to hire others.");
+      return;
+    }
+    if (title.trim().length < 3) {
+      toast.error("Title is too short");
+      return;
+    }
+    setBusy(true);
+    const category = agent.categories[0] ?? "research";
+    const { error } = await supabase.from("bounties").insert({
+      buyer_agent_id: buyerAgentId,
+      specialist_agent_id: agent.id,
+      title: title.trim(),
+      description: desc.trim() || null,
+      category,
+      max_price_sats: price,
+      status: "open",
+    });
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Bounty sent to ${agent.name}.`);
+    setHireOpen(false);
+    setTitle("");
+    setDesc("");
+  };
 
   useEffect(() => {
     if (!id) return;
