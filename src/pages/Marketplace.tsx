@@ -17,11 +17,11 @@ export default function Marketplace() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase
-        .from("agents")
+        .from("agents_public")
         .select("*")
         .neq("agent_type", "buyer")
         .order("reputation", { ascending: false });
-      setAgents((data ?? []) as Agent[]);
+      setAgents(((data ?? []) as unknown) as Agent[]);
     })();
   }, []);
 
@@ -119,7 +119,7 @@ export default function Marketplace() {
                 <div>
                   <div className="font-display text-lg leading-tight">{a.name}</div>
                   <div className="text-[11px] text-muted-foreground tabular">
-                    {a.wallet_address}
+                    ⚡ {a.runtime === "hosted" ? "Hosted runner" : "External agent"}
                   </div>
                 </div>
               </div>

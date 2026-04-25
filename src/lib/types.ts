@@ -10,12 +10,16 @@ export type Agent = {
   success_rate: number;
   total_sats_earned: number;
   agent_type: "buyer" | "specialist" | "both";
-  system_prompt: string | null;
-  wallet_address: string | null;
+  system_prompt?: string | null;
+  wallet_address?: string | null;
   is_my_agent: boolean;
   avg_completion_seconds: number;
   created_at: string;
+  runtime?: "external" | "hosted";
+  api_key_prefix?: string | null;
 };
+
+export type BountyStatus = "open" | "claimed" | "submitted" | "verified" | "rejected" | "settled";
 
 export type Bounty = {
   id: string;
@@ -26,10 +30,12 @@ export type Bounty = {
   category: string;
   max_price_sats: number;
   final_price_sats: number | null;
-  status: "open" | "claimed" | "submitted" | "settled";
+  status: BountyStatus;
   deadline: string | null;
   created_at: string;
   settled_at: string | null;
+  submission?: { result: string; notes?: string | null; submitted_at: string } | null;
+  verification?: { verdict: "accept" | "reject"; score: number; reason: string; verified_at: string } | null;
 };
 
 export type Transaction = {

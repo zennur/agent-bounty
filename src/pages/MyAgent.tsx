@@ -1,23 +1,31 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import type { Agent, Bounty, Budget } from "@/lib/types";
 import { fmtSats, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
 import { ReputationBadge, StatusPill } from "@/components/Chips";
-import { Wallet, SlidersHorizontal, Activity, Zap } from "lucide-react";
+import { Wallet, SlidersHorizontal, Activity, Zap, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import PostBountyForm from "@/components/PostBountyForm";
+import BountyDetail from "@/components/BountyDetail";
 
 export default function MyAgent() {
+  const { user } = useAuth();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [budget, setBudget] = useState<Budget | null>(null);
   const [bounties, setBounties] = useState<(Bounty & { specialist?: Agent })[]>([]);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
+    if (!user) return;
     (async () => {
+      // Owner view returns the full agent record (including wallet_address) for rows owned by auth.uid().
       const { data: a } = await supabase
-        .from("agents")
+        .from("agents_owner_view")
         .select("*")
-        .eq("is_my_agent", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
       if (!a) return;
       setAgent(a as Agent);
@@ -25,7 +33,7 @@ export default function MyAgent() {
         supabase.from("budgets").select("*").eq("agent_id", a.id).maybeSingle(),
         supabase
           .from("bounties")
-          .select("*, specialist:agents!bounties_specialist_agent_id_fkey(*)")
+          .select("*, specialist:agents_public!bounties_specialist_agent_id_fkey(*)")
           .eq("buyer_agent_id", a.id)
           .order("created_at", { ascending: false })
           .limit(10),
@@ -33,8 +41,17 @@ export default function MyAgent() {
       setBudget(bg.data as Budget | null);
       setBounties((bs.data ?? []) as any);
     })();
-  }, []);
+  }, [reloadTick, user]);
 
+  // Poll for updates while the dashboard is open (replaces realtime subscription
+  // which was disabled to prevent cross-user channel snooping).
+  useEffect(() => {
+    if (!agent) return;
+    const t = setInterval(() => setReloadTick((x) => x + 1), 5000);
+    return () => clearInterval(t);
+  }, [agent]);
+
+  if (!user) return <div className="p-10 text-muted-foreground">Sign in to manage your agent.</div>;
   if (!agent || !budget) return <div className="p-10 text-muted-foreground">Loading agent...</div>;
 
   const pct = Math.min(100, (budget.spent_today_sats / budget.daily_total_sats) * 100);
@@ -141,7 +158,37 @@ export default function MyAgent() {
         </div>
       </div>
 
-      {/* Recent activity */}
+      {/* Post a new bounty */}
+      <div className="bg-surface border border-border mb-6">
+        <div className="px-5 py-3 border-b border-border flex items-center gap-3">
+          <Plus className="h-4 w-4 text-primary" />
+          <h3 className="font-display text-sm uppercase tracking-widest">Post a bounty</h3>
+          <span className="ml-auto text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+            Hosted specialists pick up instantly
+          </span>
+        </div>
+        <div className="p-5">
+          <PostBountyForm buyerAgentId={agent.id} onPosted={() => setReloadTick((t) => t + 1)} />
+        </div>
+      </div>
+
+      {/* Submissions awaiting attention or freshly verified */}
+      {bounties.filter((b) => ["submitted", "verified", "rejected"].includes(b.status)).length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-muted-foreground mb-3">
+            <Activity className="h-3 w-3 text-primary" /> Submissions & verdicts
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            {bounties
+              .filter((b) => ["submitted", "verified", "rejected"].includes(b.status))
+              .slice(0, 4)
+              .map((b) => (
+                <BountyDetail key={b.id} bounty={b} specialist={b.specialist ?? null} />
+              ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-surface border border-border">
         <div className="px-5 py-3 border-b border-border flex items-center gap-3">
           <Zap className="h-4 w-4 text-primary" />
@@ -153,7 +200,7 @@ export default function MyAgent() {
               <div className="col-span-1 text-[10px] text-muted-foreground tabular">
                 {formatDistanceToNow(new Date(b.created_at), { addSuffix: false })}
               </div>
-              <div className="col-span-1"><StatusPill status={b.status} /></div>
+              <div className="col-span-1"><StatusPill status={b.status as any} /></div>
               <div className="col-span-5 text-sm truncate">{b.title}</div>
               <div className="col-span-3 text-xs text-muted-foreground truncate">
                 {b.specialist ? <>→ <span className="text-foreground">{b.specialist.avatar} {b.specialist.name}</span></> : <span className="text-primary animate-blink">awaiting claim...</span>}
