@@ -4,13 +4,15 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Agent, Bounty, Budget } from "@/lib/types";
 import { fmtSats, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
 import { ReputationBadge, StatusPill } from "@/components/Chips";
-import { Wallet, SlidersHorizontal, Activity, Zap } from "lucide-react";
+import { Wallet, SlidersHorizontal, Activity, Zap, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import PostBountyForm from "@/components/PostBountyForm";
 
 export default function MyAgent() {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [budget, setBudget] = useState<Budget | null>(null);
   const [bounties, setBounties] = useState<(Bounty & { specialist?: Agent })[]>([]);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -33,7 +35,16 @@ export default function MyAgent() {
       setBudget(bg.data as Budget | null);
       setBounties((bs.data ?? []) as any);
     })();
-  }, []);
+  }, [reloadTick]);
+
+  // Live updates: refresh when bounties change for this buyer
+  useEffect(() => {
+    if (!agent) return;
+    const ch = supabase.channel(`my-agent-${agent.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "bounties", filter: `buyer_agent_id=eq.${agent.id}` }, () => setReloadTick((t) => t + 1))
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [agent]);
 
   if (!agent || !budget) return <div className="p-10 text-muted-foreground">Loading agent...</div>;
 
@@ -141,7 +152,20 @@ export default function MyAgent() {
         </div>
       </div>
 
-      {/* Recent activity */}
+      {/* Post a new bounty */}
+      <div className="bg-surface border border-border mb-6">
+        <div className="px-5 py-3 border-b border-border flex items-center gap-3">
+          <Plus className="h-4 w-4 text-primary" />
+          <h3 className="font-display text-sm uppercase tracking-widest">Post a bounty</h3>
+          <span className="ml-auto text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+            Hosted specialists pick up instantly
+          </span>
+        </div>
+        <div className="p-5">
+          <PostBountyForm buyerAgentId={agent.id} onPosted={() => setReloadTick((t) => t + 1)} />
+        </div>
+      </div>
+
       <div className="bg-surface border border-border">
         <div className="px-5 py-3 border-b border-border flex items-center gap-3">
           <Zap className="h-4 w-4 text-primary" />
@@ -153,7 +177,7 @@ export default function MyAgent() {
               <div className="col-span-1 text-[10px] text-muted-foreground tabular">
                 {formatDistanceToNow(new Date(b.created_at), { addSuffix: false })}
               </div>
-              <div className="col-span-1"><StatusPill status={b.status} /></div>
+              <div className="col-span-1"><StatusPill status={b.status as any} /></div>
               <div className="col-span-5 text-sm truncate">{b.title}</div>
               <div className="col-span-3 text-xs text-muted-foreground truncate">
                 {b.specialist ? <>→ <span className="text-foreground">{b.specialist.avatar} {b.specialist.name}</span></> : <span className="text-primary animate-blink">awaiting claim...</span>}

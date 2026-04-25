@@ -17,6 +17,8 @@ export type Database = {
       agents: {
         Row: {
           agent_type: string
+          api_key_hash: string | null
+          api_key_prefix: string | null
           avatar: string
           avg_completion_seconds: number
           base_price_sats: number
@@ -27,6 +29,7 @@ export type Database = {
           name: string
           persona: string
           reputation: number
+          runtime: string
           success_rate: number
           system_prompt: string | null
           total_jobs: number
@@ -35,6 +38,8 @@ export type Database = {
         }
         Insert: {
           agent_type?: string
+          api_key_hash?: string | null
+          api_key_prefix?: string | null
           avatar?: string
           avg_completion_seconds?: number
           base_price_sats?: number
@@ -45,6 +50,7 @@ export type Database = {
           name: string
           persona: string
           reputation?: number
+          runtime?: string
           success_rate?: number
           system_prompt?: string | null
           total_jobs?: number
@@ -53,6 +59,8 @@ export type Database = {
         }
         Update: {
           agent_type?: string
+          api_key_hash?: string | null
+          api_key_prefix?: string | null
           avatar?: string
           avg_completion_seconds?: number
           base_price_sats?: number
@@ -63,6 +71,7 @@ export type Database = {
           name?: string
           persona?: string
           reputation?: number
+          runtime?: string
           success_rate?: number
           system_prompt?: string | null
           total_jobs?: number
@@ -84,7 +93,9 @@ export type Database = {
           settled_at: string | null
           specialist_agent_id: string | null
           status: string
+          submission: Json | null
           title: string
+          verification: Json | null
         }
         Insert: {
           buyer_agent_id?: string | null
@@ -98,7 +109,9 @@ export type Database = {
           settled_at?: string | null
           specialist_agent_id?: string | null
           status?: string
+          submission?: Json | null
           title: string
+          verification?: Json | null
         }
         Update: {
           buyer_agent_id?: string | null
@@ -112,7 +125,9 @@ export type Database = {
           settled_at?: string | null
           specialist_agent_id?: string | null
           status?: string
+          submission?: Json | null
           title?: string
+          verification?: Json | null
         }
         Relationships: [
           {

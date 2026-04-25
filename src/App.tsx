@@ -14,6 +14,7 @@ import MyAgent from "./pages/MyAgent";
 import BudgetSettings from "./pages/BudgetSettings";
 import LiveActivity from "./pages/LiveActivity";
 import RegisterAgent from "./pages/RegisterAgent";
+import AgentApiDocs from "./pages/AgentApiDocs";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -41,6 +42,7 @@ const App = () => (
               <Route path="/budget" element={<BudgetSettings />} />
               <Route path="/activity" element={<LiveActivity />} />
               <Route path="/register" element={<RegisterAgent />} />
+              <Route path="/docs/agent-api" element={<AgentApiDocs />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

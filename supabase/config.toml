@@ -1,1 +1,13 @@
 project_id = "nhchcwropqwszrbpxkhr"
+
+[functions.agent-api]
+verify_jwt = false
+
+[functions.verify-bounty]
+verify_jwt = false
+
+[functions.run-agent]
+verify_jwt = false
+
+[functions.issue-agent-key]
+verify_jwt = false

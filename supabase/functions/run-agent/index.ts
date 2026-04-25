@@ -1,0 +1,100 @@
+// Hosted runner: when a new bounty is posted, the Postgres trigger calls this.
+// We pick the best-fit hosted specialist and run it via Lovable AI to produce a submission.
+// Then we claim + submit on its behalf, which kicks off the verifier.
+
+import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
+import { makeContext } from "../_shared/lightning.ts";
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return errorResponse("POST only.", 405);
+
+  const { supabase } = makeContext();
+  const { bounty_id } = await req.json().catch(() => ({}));
+  if (!bounty_id) return errorResponse("bounty_id required.", 400);
+
+  const { data: bounty } = await supabase.from("bounties").select("*").eq("id", bounty_id).maybeSingle();
+  if (!bounty || bounty.status !== "open") {
+    return jsonResponse({ skipped: true, reason: `bounty status=${bounty?.status ?? "missing"}` });
+  }
+
+  // Pick a hosted specialist that handles this category. Prefer highest reputation, lowest price ≤ max.
+  const { data: candidates } = await supabase
+    .from("agents")
+    .select("id, name, persona, system_prompt, base_price_sats, reputation, categories")
+    .eq("runtime", "hosted")
+    .eq("agent_type", "specialist")
+    .lte("base_price_sats", bounty.max_price_sats)
+    .contains("categories", [bounty.category])
+    .order("reputation", { ascending: false })
+    .limit(1);
+
+  const specialist = candidates?.[0];
+  if (!specialist) {
+    console.log("No hosted specialist for", bounty.category);
+    return jsonResponse({ dispatched: false, reason: "No matching hosted specialist." });
+  }
+
+  // Atomically claim.
+  const { data: claimed } = await supabase
+    .from("bounties").update({ specialist_agent_id: specialist.id, status: "claimed" })
+    .eq("id", bounty_id).eq("status", "open").select("*").maybeSingle();
+  if (!claimed) {
+    return jsonResponse({ dispatched: false, reason: "Already claimed by someone else." });
+  }
+
+  // Run the LLM specialist.
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (!LOVABLE_API_KEY) return errorResponse("LOVABLE_API_KEY not configured.", 500);
+
+  const systemPrompt = specialist.system_prompt
+    ?? `You are ${specialist.name}. ${specialist.persona}. Provide a focused, expert response.`;
+
+  let result = "";
+  try {
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `BOUNTY: ${bounty.title}\nCATEGORY: ${bounty.category}\n\n${bounty.description ?? ""}` },
+        ],
+      }),
+    });
+    if (!resp.ok) {
+      console.error("Hosted runner AI error", resp.status, await resp.text());
+      result = `(${specialist.name} could not complete the task — upstream error.)`;
+    } else {
+      const data = await resp.json();
+      result = data.choices?.[0]?.message?.content ?? "(empty response)";
+    }
+  } catch (e) {
+    console.error("Hosted runner LLM failed", e);
+    result = `(${specialist.name} crashed — fallback verdict.)`;
+  }
+
+  // Submit on behalf of the hosted specialist.
+  await supabase.from("bounties").update({
+    status: "submitted",
+    submission: {
+      result,
+      notes: `Hosted runner: ${specialist.name}`,
+      submitted_at: new Date().toISOString(),
+    },
+  }).eq("id", bounty_id);
+
+  // Trigger verification.
+  const projectUrl = Deno.env.get("SUPABASE_URL")!;
+  // deno-lint-ignore no-explicit-any
+  (globalThis as any).EdgeRuntime?.waitUntil(
+    fetch(`${projectUrl}/functions/v1/verify-bounty`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bounty_id }),
+    }).catch(() => {})
+  );
+
+  return jsonResponse({ dispatched: true, specialist: specialist.name });
+});

@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { Activity, SlidersHorizontal, Store, UserPlus, Bot, Zap, LogOut } from "lucide-react";
+import { Activity, SlidersHorizontal, Store, UserPlus, Bot, Zap, LogOut, Code2 } from "lucide-react";
 import TickerBar from "./TickerBar";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ const navItems = [
   { to: "/budget", label: "Budget", icon: SlidersHorizontal },
   { to: "/activity", label: "Live Activity", icon: Activity },
   { to: "/register", label: "Register Agent", icon: UserPlus },
+  { to: "/docs/agent-api", label: "Agent API", icon: Code2 },
 ];
 
 export default function AppLayout() {
