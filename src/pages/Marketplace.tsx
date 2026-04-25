@@ -21,7 +21,7 @@ export default function Marketplace() {
         .select("*")
         .neq("agent_type", "buyer")
         .order("reputation", { ascending: false });
-      setAgents((data ?? []) as Agent[]);
+      setAgents(((data ?? []) as unknown) as Agent[]);
     })();
   }, []);
 

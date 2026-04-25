@@ -24,7 +24,7 @@ export default function AgentProfile() {
           .order("created_at", { ascending: false })
           .limit(10),
       ]);
-      setAgent(a.data as Agent | null);
+      setAgent((a.data as unknown) as Agent | null);
       setBounties((b.data ?? []) as any);
     })();
   }, [id]);
