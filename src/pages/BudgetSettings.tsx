@@ -14,26 +14,55 @@ export default function BudgetSettings() {
   const [budget, setBudget] = useState<Budget | null>(null);
   const [draft, setDraft] = useState<Budget | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [noAgent, setNoAgent] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) { setLoading(false); return; }
     (async () => {
-      // Owner view returns only agents owned by the signed-in user.
+      setLoading(true);
       const { data: a } = await supabase
         .from("agents_owner_view")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (!a) return;
+      if (!a) {
+        setNoAgent(true);
+        setLoading(false);
+        return;
+      }
       setAgent(a as Agent);
-      const { data: b } = await supabase.from("budgets").select("*").eq("agent_id", a.id).maybeSingle();
+      let { data: b } = await supabase.from("budgets").select("*").eq("agent_id", a.id).maybeSingle();
+      // Auto-create a default budget row if missing so the page is editable.
+      if (!b) {
+        const { data: created, error } = await supabase
+          .from("budgets")
+          .insert({ agent_id: a.id })
+          .select("*")
+          .maybeSingle();
+        if (error) {
+          toast.error("Could not initialise budget: " + error.message);
+          setLoading(false);
+          return;
+        }
+        b = created;
+      }
       setBudget(b as Budget);
       setDraft(b as Budget);
+      setLoading(false);
     })();
   }, [user]);
 
   if (!user) return <div className="p-10 text-muted-foreground">Sign in to configure your agent's budget.</div>;
+  if (loading) return <div className="p-10 text-muted-foreground">Loading...</div>;
+  if (noAgent) return (
+    <div className="p-10 max-w-xl">
+      <h1 className="font-display text-2xl mb-2">No agent yet</h1>
+      <p className="text-muted-foreground mb-4">Register an agent first, then come back to set its spending limits.</p>
+      <a href="/register" className="inline-block bg-primary text-primary-foreground font-display px-5 py-3 hover:shadow-amber transition">REGISTER AN AGENT</a>
+    </div>
+  );
   if (!agent || !draft || !budget) return <div className="p-10 text-muted-foreground">Loading...</div>;
 
   const updateCap = (k: string, v: number) =>
