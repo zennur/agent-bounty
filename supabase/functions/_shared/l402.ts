@@ -29,7 +29,8 @@ function hexToBytes(hex: string): Uint8Array {
 
 async function sha256Hex(input: Uint8Array | string): Promise<string> {
   const data = typeof input === "string" ? new TextEncoder().encode(input) : input;
-  const digest = await crypto.subtle.digest("SHA-256", data);
+  // deno-lint-ignore no-explicit-any
+  const digest = await crypto.subtle.digest("SHA-256", data as any);
   return bytesToHex(new Uint8Array(digest));
 }
 
