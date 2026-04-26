@@ -92,13 +92,13 @@ server.tool("get_agent_details", {
 // -------------------- hire_agent --------------------
 server.tool("hire_agent", {
   description:
-    "Post a bounty to hire an agent. Requires an agent API key in the Authorization header — the authed agent becomes the buyer and sats are escrowed from its wallet. Returns job_id (poll with get_task_result). The marketplace auto-dispatches a matching specialist.",
+    "Hire an agent and get the result inline. Picks the best-matching specialist for the category (or uses preferred_agent_id), invokes it synchronously via the AgentBazaar backend, settles payment in sats, and returns the agent's answer directly. No polling needed. Requires an agent API key in the Authorization header.",
   inputSchema: z.object({
     title: z.string().min(3).max(200).describe("Short task title"),
     description: z.string().max(4000).optional().describe("Detailed task description / payload"),
-    category: z.string().min(2).max(60).describe("Category to route the bounty to"),
+    category: z.string().min(2).max(60).describe("Category to route the request to"),
     max_price_sats: z.number().int().min(10).max(1_000_000).describe("Max sats willing to pay"),
-    preferred_agent_id: z.string().optional().describe("Optional: specific agent id hint"),
+    preferred_agent_id: z.string().optional().describe("Optional: specific agent id to hire"),
   }),
   handler: async (args, ctx) => {
     const buyerAgentId = (ctx.authInfo?.extra as { agent_id?: string } | undefined)?.agent_id;
@@ -108,44 +108,184 @@ server.tool("hire_agent", {
 
     const { supabase, lightning } = makeContext();
 
+    // 1. Pick a specialist: preferred id first, else best-match by category/price/reputation.
+    let specialist: {
+      id: string;
+      name: string;
+      base_price_sats: number;
+      runtime: string;
+      external_invoke_url: string | null;
+      input_field_name: string | null;
+      external_slug: string | null;
+      system_prompt: string | null;
+      persona: string | null;
+    } | null = null;
+
+    if (args.preferred_agent_id) {
+      const { data } = await supabase
+        .from("agents")
+        .select("id, name, base_price_sats, runtime, external_invoke_url, input_field_name, external_slug, system_prompt, persona, is_active")
+        .eq("id", args.preferred_agent_id)
+        .eq("is_active", true)
+        .maybeSingle();
+      specialist = data as typeof specialist;
+      if (!specialist) return err("Preferred agent not found or inactive.");
+      if (specialist.base_price_sats > args.max_price_sats) {
+        return err(`Preferred agent costs ${specialist.base_price_sats} sats, above your max of ${args.max_price_sats}.`);
+      }
+    } else {
+      const { data: candidates } = await supabase
+        .from("agents")
+        .select("id, name, base_price_sats, runtime, external_invoke_url, input_field_name, external_slug, system_prompt, persona")
+        .in("runtime", ["hosted", "external"])
+        .eq("agent_type", "specialist")
+        .eq("is_active", true)
+        .lte("base_price_sats", args.max_price_sats)
+        .contains("categories", [args.category])
+        .order("reputation", { ascending: false })
+        .limit(1);
+      specialist = (candidates?.[0] as typeof specialist) ?? null;
+      if (!specialist) return err(`No active specialist found for category "${args.category}" at max ${args.max_price_sats} sats.`);
+    }
+
+    const price = specialist.base_price_sats;
+
+    // 2. Escrow sats from buyer's wallet.
     const escrow = await lightning.escrow({
       buyerAgentId,
-      amountSats: args.max_price_sats,
+      amountSats: price,
       bountyId: "pending",
     });
     if (!escrow.ok) return err(escrow.message ?? "Escrow failed.");
 
-    const { data, error } = await supabase
+    // 3. Create the bounty row already in 'claimed' state so the dispatcher trigger doesn't double-fire.
+    const { data: bounty, error: insertErr } = await supabase
       .from("bounties")
       .insert({
         buyer_agent_id: buyerAgentId,
+        specialist_agent_id: specialist.id,
         title: args.title,
         description: args.description ?? null,
         category: args.category,
         max_price_sats: args.max_price_sats,
-        status: "open",
+        status: "claimed",
       })
-      .select("id, status, created_at, max_price_sats, category, title")
+      .select("id")
       .single();
 
-    if (error) {
-      await lightning.refund({
-        buyerAgentId,
-        amountSats: args.max_price_sats,
-        bountyId: "pending",
-      });
-      return err(error.message);
+    if (insertErr || !bounty) {
+      await lightning.refund({ buyerAgentId, amountSats: price, bountyId: "pending" });
+      return err(insertErr?.message ?? "Failed to create bounty.");
     }
 
+    const jobId = bounty.id;
+
+    // 4. Invoke the agent synchronously.
+    const taskPayload = `${args.title}\n\n${args.description ?? ""}`.trim();
+    let agentResult: string | null = null;
+    let agentError: string | null = null;
+
+    try {
+      if (specialist.runtime === "external" && specialist.external_invoke_url) {
+        const inputKey = specialist.input_field_name ?? "query";
+        const resp = await fetch(specialist.external_invoke_url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [inputKey]: taskPayload }),
+        });
+        if (!resp.ok) {
+          agentError = `Agent returned HTTP ${resp.status}: ${await resp.text().catch(() => "")}`;
+        } else {
+          const data = await resp.json();
+          agentResult = data.answer ?? data.result ?? JSON.stringify(data);
+        }
+      } else if (specialist.runtime === "hosted") {
+        // Hosted Lovable AI specialist
+        const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+        if (!LOVABLE_API_KEY) {
+          agentError = "Hosted runtime not configured (missing LOVABLE_API_KEY).";
+        } else {
+          const systemPrompt = specialist.system_prompt
+            ?? `You are ${specialist.name}. ${specialist.persona ?? ""}. Provide a focused, expert response.`;
+          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash",
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: `BOUNTY: ${args.title}\nCATEGORY: ${args.category}\n\n${args.description ?? ""}` },
+              ],
+            }),
+          });
+          if (!resp.ok) {
+            agentError = `Hosted AI returned HTTP ${resp.status}.`;
+          } else {
+            const data = await resp.json();
+            agentResult = data.choices?.[0]?.message?.content ?? null;
+            if (!agentResult) agentError = "Hosted AI returned empty response.";
+          }
+        }
+      } else {
+        agentError = `Specialist runtime '${specialist.runtime}' is not invokable.`;
+      }
+    } catch (e) {
+      agentError = e instanceof Error ? e.message : String(e);
+    }
+
+    // 5. Settle: success → release sats + mark settled; failure → refund + mark failed.
+    if (agentError || !agentResult) {
+      await lightning.refund({ buyerAgentId, amountSats: price, bountyId: jobId });
+      await supabase
+        .from("bounties")
+        .update({
+          status: "failed",
+          payout_error: agentError ?? "Unknown invocation error.",
+          submission: { error: agentError, attempted_at: new Date().toISOString() },
+        })
+        .eq("id", jobId);
+      return err(`Agent invocation failed: ${agentError ?? "no result"}. Sats refunded.`);
+    }
+
+    const release = await lightning.release({
+      buyerAgentId,
+      specialistAgentId: specialist.id,
+      amountSats: price,
+      bountyId: jobId,
+    });
+
+    await supabase
+      .from("bounties")
+      .update({
+        status: "settled",
+        final_price_sats: price,
+        submission: {
+          result: agentResult,
+          notes: `MCP synchronous invocation via ${specialist.name}`,
+          submitted_at: new Date().toISOString(),
+        },
+        verification: { ok: true, mode: "mcp_synchronous" },
+        settled_at: new Date().toISOString(),
+        payout_preimage: release.txn_id ?? null,
+      })
+      .eq("id", jobId);
+
     return json({
-      job_id: data.id,
-      status: data.status,
-      escrowed_sats: args.max_price_sats,
-      created_at: data.created_at,
-      poll_with: `get_task_result(job_id="${data.id}")`,
+      job_id: jobId,
+      status: "settled",
+      result: agentResult,
+      specialist: {
+        id: specialist.id,
+        name: specialist.name,
+        slug: specialist.external_slug,
+        runtime: specialist.runtime,
+      },
+      paid_sats: price,
+      payout_ref: release.txn_id ?? null,
     });
   },
 });
+
 
 // -------------------- get_task_result --------------------
 server.tool("get_task_result", {
