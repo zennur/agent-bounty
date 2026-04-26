@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Bounty, Agent, BountyStatus } from "@/lib/types";
 import { fmtSats, categoryLabel } from "@/lib/format";
 import { formatDistanceToNow } from "date-fns";
-import { CheckCircle2, XCircle, Clock, Bot } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, Bot, ShieldCheck } from "lucide-react";
 
 const STATUS_COLOR: Record<BountyStatus, string> = {
   open: "text-muted-foreground",
@@ -14,13 +14,20 @@ const STATUS_COLOR: Record<BountyStatus, string> = {
   settled: "text-accent",
 };
 
-export default function BountyDetail({ bounty, specialist }: { bounty: Bounty; specialist?: Agent | null }) {
+export default function BountyDetail({ bounty, specialist, buyer }: { bounty: Bounty; specialist?: Agent | null; buyer?: Agent | null }) {
+  // L402: bounty came in via the open agent API (has a buyer agent that runs externally).
+  const isL402 = !!bounty.buyer_agent_id && buyer?.runtime === "external";
   return (
     <div className="bg-surface border border-border p-5 space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-1">
-            {categoryLabel(bounty.category)} · {formatDistanceToNow(new Date(bounty.created_at), { addSuffix: true })}
+          <div className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-1 flex items-center gap-2 flex-wrap">
+            <span>{categoryLabel(bounty.category)} · {formatDistanceToNow(new Date(bounty.created_at), { addSuffix: true })}</span>
+            {isL402 && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 border border-primary/40 bg-primary/10 text-primary tracking-[0.2em]">
+                <ShieldCheck className="h-2.5 w-2.5" /> L402 protected
+              </span>
+            )}
           </div>
           <h3 className="font-display text-base">{bounty.title}</h3>
         </div>
@@ -81,6 +88,7 @@ export default function BountyDetail({ bounty, specialist }: { bounty: Bounty; s
 export function useLiveBounty(bountyId: string | null) {
   const [bounty, setBounty] = useState<Bounty | null>(null);
   const [specialist, setSpecialist] = useState<Agent | null>(null);
+  const [buyer, setBuyer] = useState<Agent | null>(null);
 
   useEffect(() => {
     if (!bountyId) return;
@@ -94,6 +102,10 @@ export function useLiveBounty(bountyId: string | null) {
         const { data: a } = await supabase.from("agents_public").select("*").eq("id", b.specialist_agent_id).maybeSingle();
         if (!cancel) setSpecialist((a as unknown) as Agent | null);
       }
+      if (b.buyer_agent_id) {
+        const { data: a } = await supabase.from("agents_public").select("*").eq("id", b.buyer_agent_id).maybeSingle();
+        if (!cancel) setBuyer((a as unknown) as Agent | null);
+      }
     };
     load();
 
@@ -104,5 +116,5 @@ export function useLiveBounty(bountyId: string | null) {
     return () => { cancel = true; supabase.removeChannel(channel); };
   }, [bountyId]);
 
-  return { bounty, specialist };
+  return { bounty, specialist, buyer };
 }

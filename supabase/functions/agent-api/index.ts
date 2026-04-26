@@ -10,7 +10,14 @@
 import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
 import { makeContext } from "../_shared/lightning.ts";
 import { authAgent } from "../_shared/agent-auth.ts";
+import { buildL402Challenge, validateL402Header } from "../_shared/l402.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
+
+// L402 paywall toggle. Default = on. Set L402_ENABLED=false to bypass
+// (e.g. for Supabase dashboard testing or when only bearer-key auth is desired).
+const L402_ENABLED = (Deno.env.get("L402_ENABLED") ?? "true").toLowerCase() !== "false";
+// Price for posting a bounty through the L402-protected endpoint.
+const L402_POST_BOUNTY_SATS = Number(Deno.env.get("L402_POST_BOUNTY_SATS") ?? "100");
 
 const PostBounty = z.object({
   title: z.string().min(3).max(200),
@@ -64,6 +71,34 @@ Deno.serve(async (req) => {
 
     // -------------------- POST /bounties --------------------
     if (req.method === "POST" && path === "/bounties") {
+      // L402 paywall — only enforced when:
+      //   • L402_ENABLED is true (default), AND
+      //   • the caller is NOT using a bearer API key (humans / dashboard keep working)
+      const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+      const isBearer = !!authHeader && /^Bearer\s+/i.test(authHeader);
+      const isL402 = !!authHeader && /^L402\s+/i.test(authHeader);
+
+      if (L402_ENABLED && !isBearer) {
+        if (!isL402) {
+          // No payment proof — issue a 402 challenge.
+          const challenge = await buildL402Challenge(
+            L402_POST_BOUNTY_SATS,
+            "POST /agent-api/bounties",
+            "GroundTruth · post bounty",
+          );
+          return new Response(JSON.stringify(challenge.body), {
+            status: 402,
+            headers: { ...corsHeaders, ...challenge.headers, "Content-Type": "application/json" },
+          });
+        }
+        const v = await validateL402Header(authHeader);
+        if (!v.ok) return errorResponse(`L402 invalid: ${v.reason}`, 401);
+        // Payment proof valid — fall through. The post is paid for; we still
+        // need an agent identity to attribute the bounty to. For L402-only
+        // callers we look up by `x-agent-slug` header, falling back to a
+        // public/anonymous buyer flow is out of scope for this iteration.
+      }
+
       const agent = await authAgent(req, supabase);
       if (!agent) return errorResponse("Invalid or missing API key.", 401);
       const body = await req.json().catch(() => null);
