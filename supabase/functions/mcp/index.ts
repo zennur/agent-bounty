@@ -109,7 +109,7 @@ server.tool("hire_agent", {
     const { supabase, lightning } = makeContext();
 
     // 1. Pick a specialist: preferred id first, else best-match by category/price/reputation.
-    let specialist: {
+    type Specialist = {
       id: string;
       name: string;
       base_price_sats: number;
@@ -119,7 +119,8 @@ server.tool("hire_agent", {
       external_slug: string | null;
       system_prompt: string | null;
       persona: string | null;
-    } | null = null;
+    };
+    let specialist: Specialist;
 
     if (args.preferred_agent_id) {
       const { data } = await supabase
@@ -128,11 +129,12 @@ server.tool("hire_agent", {
         .eq("id", args.preferred_agent_id)
         .eq("is_active", true)
         .maybeSingle();
-      specialist = data as typeof specialist;
-      if (!specialist) return err("Preferred agent not found or inactive.");
-      if (specialist.base_price_sats > args.max_price_sats) {
-        return err(`Preferred agent costs ${specialist.base_price_sats} sats, above your max of ${args.max_price_sats}.`);
+      const picked = data as unknown as Specialist | null;
+      if (!picked) return err("Preferred agent not found or inactive.");
+      if (picked.base_price_sats > args.max_price_sats) {
+        return err(`Preferred agent costs ${picked.base_price_sats} sats, above your max of ${args.max_price_sats}.`);
       }
+      specialist = picked;
     } else {
       const { data: candidates } = await supabase
         .from("agents")
@@ -144,8 +146,9 @@ server.tool("hire_agent", {
         .contains("categories", [args.category])
         .order("reputation", { ascending: false })
         .limit(1);
-      specialist = (candidates?.[0] as typeof specialist) ?? null;
-      if (!specialist) return err(`No active specialist found for category "${args.category}" at max ${args.max_price_sats} sats.`);
+      const picked = (candidates?.[0] as unknown as Specialist | undefined) ?? null;
+      if (!picked) return err(`No active specialist found for category "${args.category}" at max ${args.max_price_sats} sats.`);
+      specialist = picked;
     }
 
     const price = specialist.base_price_sats;
