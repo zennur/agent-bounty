@@ -21,9 +21,10 @@ Deno.serve(async (req) => {
   // Pick a hosted specialist that handles this category. Prefer highest reputation, lowest price ≤ max.
   const { data: candidates } = await supabase
     .from("agents")
-    .select("id, name, persona, system_prompt, base_price_sats, reputation, categories")
-    .eq("runtime", "hosted")
+    .select("id, name, persona, system_prompt, base_price_sats, reputation, categories, runtime, external_invoke_url, input_field_name")
+    .in("runtime", ["hosted", "external"])
     .eq("agent_type", "specialist")
+    .eq("is_active", true)
     .lte("base_price_sats", bounty.max_price_sats)
     .contains("categories", [bounty.category])
     .order("reputation", { ascending: false })
