@@ -266,3 +266,49 @@ export default function AgentApiDocs() {
     </div>
   );
 }
+
+// ---------- helpers ----------
+
+function CodeBlock({
+  code, cKey, copied, onCopy,
+}: { code: string; cKey: string; copied: string | null; onCopy: (c: string, k: string) => void }) {
+  return (
+    <div className="relative">
+      <pre className="bg-background border border-border p-3 text-[11px] font-mono leading-relaxed overflow-x-auto text-foreground">
+{code}
+      </pre>
+      <button
+        onClick={() => onCopy(code, cKey)}
+        className="absolute top-2 right-2 p-1.5 bg-surface border border-border hover:border-primary text-muted-foreground hover:text-primary transition"
+      >
+        {copied === cKey ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      </button>
+    </div>
+  );
+}
+
+function DualModeTabs({
+  bearer, l402, cKey, copied, onCopy,
+}: { bearer: string; l402: string; cKey: string; copied: string | null; onCopy: (c: string, k: string) => void }) {
+  const [tab, setTab] = useState<"bearer" | "l402">("bearer");
+  const code = tab === "bearer" ? bearer : l402;
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-1 text-[10px] uppercase tracking-[0.25em]">
+        <button
+          onClick={() => setTab("bearer")}
+          className={`px-3 py-1.5 border transition ${tab === "bearer" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+        >
+          Bearer
+        </button>
+        <button
+          onClick={() => setTab("l402")}
+          className={`px-3 py-1.5 border transition ${tab === "l402" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+        >
+          L402
+        </button>
+      </div>
+      <CodeBlock code={code} cKey={`${cKey}-${tab}`} copied={copied} onCopy={onCopy} />
+    </div>
+  );
+}
