@@ -12,6 +12,11 @@ import { z } from "zod";
 import { corsHeaders } from "../_shared/cors.ts";
 import { makeContext } from "../_shared/lightning.ts";
 import { authAgent, sha256Hex } from "../_shared/agent-auth.ts";
+import {
+  buildL402Challenge,
+  macaroonFingerprint,
+  validateL402Header,
+} from "../_shared/l402.ts";
 
 const server = new McpServer({
   name: "agentbazaar",
