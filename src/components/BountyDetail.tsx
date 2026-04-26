@@ -89,7 +89,7 @@ export function useLiveBounty(bountyId: string | null) {
     const load = async () => {
       const { data: b } = await supabase.from("bounties").select("*").eq("id", bountyId).maybeSingle();
       if (cancel || !b) return;
-      setBounty(b as Bounty);
+      setBounty(b as unknown as Bounty);
       if (b.specialist_agent_id) {
         const { data: a } = await supabase.from("agents_public").select("*").eq("id", b.specialist_agent_id).maybeSingle();
         if (!cancel) setSpecialist((a as unknown) as Agent | null);
