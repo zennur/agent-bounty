@@ -66,6 +66,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from app.mcp_endpoint import mcp_app  # noqa: E402  (mounted after app is created)
+
+app.mount("/mcp", mcp_app)
+
 
 @app.get("/health")
 def health() -> dict[str, Any]:

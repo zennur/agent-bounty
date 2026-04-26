@@ -26,14 +26,18 @@ CLI push, no `RAILWAY_TOKEN`, no extra GitHub Action.
 2. Choose **Deploy from GitHub repo**.
 3. Authorize Railway for your GitHub account / org if prompted, then pick this
    repo.
-4. Railway scans the repo and detects the `Dockerfile` and `railway.toml`. It
-   uses the `DOCKERFILE` builder and the start command from `railway.toml`:
+4. **Monorepo: set the Root Directory.** This repo lives in a monorepo where
+   the backend is under `backend/`. In **Service → Settings → Source**, set
+   **Root Directory** to `backend`. Railway will then resolve `Dockerfile` and
+   `railway.toml` relative to `backend/`.
+5. Railway scans `backend/` and detects the `Dockerfile` and `railway.toml`.
+   It uses the `DOCKERFILE` builder and the start command from `railway.toml`:
 
    ```
    uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
    ```
 
-5. The first build kicks off automatically. It will fail health checks until
+6. The first build kicks off automatically. It will fail health checks until
    you set the Azure env vars in step 3.
 
 ## 3. Set environment variables
@@ -91,17 +95,75 @@ curl -X POST https://<host>/agents/british-predecimal-agent/invoke \
 If `/health` returns the registered agent slugs and the `invoke` calls return
 JSON answers without `401`/`404` from Azure OpenAI in the logs, you're done.
 
+## 5b. Connect from Cursor (MCP)
+
+The same FastAPI app also serves a remote [Model Context Protocol](https://modelcontextprotocol.io/)
+server at `/mcp/sse`. That turns each `agent.md` into a Cursor tool call — no
+local install, no proxy script.
+
+Quick check that the MCP endpoint is live:
+
+```bash
+curl -N https://<host>/mcp/sse
+# expected: HTTP 200, content-type: text/event-stream, and an
+# "event: endpoint" line announcing /mcp/messages/?session_id=...
+```
+
+Wire Cursor to it:
+
+1. Open (or create) `~/.cursor/mcp.json`.
+2. Add the `agentbazaar` server:
+
+   ```json
+   {
+     "mcpServers": {
+       "agentbazaar": {
+         "url": "https://<host>/mcp/sse"
+       }
+     }
+   }
+   ```
+
+3. Restart Cursor → **Settings → MCP**. You should see `agentbazaar` listed
+   with three green tools:
+
+   - `superbacteria-agent`
+   - `oncology-drug-agent`
+   - `british-predecimal-agent`
+
+4. Use it in chat, e.g.:
+
+   - "Use the agentbazaar tool `superbacteria-agent` to look up the WHO
+     priority and last-resort treatment for CRAB."
+   - "Call `british-predecimal-agent` to add £1 19s 11d and 1d and explain
+     the carries."
+
+Cursor routes those calls through the MCP server on Railway, which delegates
+to the same `/agents/{slug}/invoke` logic. Adding a new `agents/*.md` and
+redeploying is enough — the new agent automatically becomes a new MCP tool.
+
+> Heads-up: this URL is currently open. Anyone with the host can call your
+> agents and consume Azure OpenAI tokens. If that becomes a problem, add an
+> `X-API-Key` check on `/mcp/sse` and pass `"headers": { "X-API-Key": "..." }`
+> in `mcp.json`.
+
 ## 6. Auto-deploy on push
 
 Railway watches the GitHub branch you selected when creating the project (by
-default, the repository's default branch). Every push triggers:
+default, the repository's default branch). Every push that touches `backend/`
+triggers:
 
 1. Pull the latest commit.
-2. Rebuild the image from `Dockerfile`.
-3. Run health checks against `/health` (configured in `railway.toml`).
+2. Rebuild the image from `backend/Dockerfile`.
+3. Run health checks against `/health` (configured in `backend/railway.toml`).
 4. Promote the new revision and route traffic to it.
 
 If the health check fails, Railway keeps the previous revision live.
+
+> Tip: Railway's GitHub integration redeploys on **any** commit to the watched
+> branch by default. If your monorepo gets noisy, configure the Root Directory
+> filter or add a Railway path filter so frontend-only commits don't trigger
+> backend rebuilds.
 
 ## 7. Troubleshooting
 
@@ -118,9 +180,7 @@ If the health check fails, Railway keeps the previous revision live.
 ## 8. Things that are *not* needed on Railway
 
 - No Azure Container Apps, ACR, or managed identity.
-- No `publish-image.yml` or any image registry — Railway builds from source.
+- No image registry (GHCR, ACR, Docker Hub) — Railway builds from source.
 - No CLI tokens stored in GitHub secrets.
-
-The CI workflow [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) is
-kept solely for PR-time validation (spec parsing + Docker build) and is
-independent of Railway.
+- No GitHub Actions workflows — this repo ships zero workflows; Railway's
+  GitHub integration handles build + deploy on its own.
