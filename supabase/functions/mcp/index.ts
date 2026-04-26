@@ -455,7 +455,7 @@ const app = new Hono();
 app.options("/*", () => new Response(null, { headers: corsHeaders }));
 
 app.all("/*", async (c) => {
-  // Resolve bearer token to an agent (if any) and pass via authInfo.
+  // Resolve auth: prefer Bearer (agent key); else stash an L402 header for the tool to validate.
   let authInfo: { token: string; scopes: string[]; extra?: Record<string, unknown> } | undefined;
   const header = c.req.raw.headers.get("authorization") ?? c.req.raw.headers.get("Authorization");
   if (header?.startsWith("Bearer gt_")) {
@@ -469,6 +469,12 @@ app.all("/*", async (c) => {
         extra: { agent_id: agent.id, agent_name: agent.name },
       };
     }
+  } else if (header?.startsWith("L402 ")) {
+    authInfo = {
+      token: await sha256Hex(header),
+      scopes: ["l402"],
+      extra: { l402_header: header },
+    };
   }
 
   const res = await handle(c.req.raw, authInfo ? { authInfo } : undefined);
