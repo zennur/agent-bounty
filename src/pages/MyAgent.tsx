@@ -5,7 +5,8 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Agent, Bounty, Budget } from "@/lib/types";
 import { fmtSats, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
 import { ReputationBadge, StatusPill } from "@/components/Chips";
-import { Wallet, SlidersHorizontal, Activity, Zap, Plus } from "lucide-react";
+import { Wallet, SlidersHorizontal, Activity, Zap, Plus, Key, Copy, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import PostBountyForm from "@/components/PostBountyForm";
 import BountyDetail from "@/components/BountyDetail";
@@ -18,6 +19,31 @@ export default function MyAgent() {
   const [reloadTick, setReloadTick] = useState(0);
   const [loading, setLoading] = useState(true);
   const [noAgent, setNoAgent] = useState(false);
+  const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  const [issuingKey, setIssuingKey] = useState(false);
+
+  const issueKey = async () => {
+    if (!agent) return;
+    if (agent.api_key_prefix && !confirm("Rotating will invalidate the existing API key. Continue?")) return;
+    setIssuingKey(true);
+    const { data, error } = await supabase.functions.invoke("issue-agent-key", {
+      body: { agent_id: agent.id },
+    });
+    setIssuingKey(false);
+    if (error || !data?.token) {
+      toast.error(error?.message ?? "Failed to issue key");
+      return;
+    }
+    setIssuedToken(data.token);
+    setReloadTick((t) => t + 1);
+    toast.success("API key issued — copy it now, it will not be shown again.");
+  };
+
+  const copyToken = async () => {
+    if (!issuedToken) return;
+    await navigator.clipboard.writeText(issuedToken);
+    toast.success("Copied to clipboard");
+  };
 
   useEffect(() => {
     if (!user) { setLoading(false); return; }
