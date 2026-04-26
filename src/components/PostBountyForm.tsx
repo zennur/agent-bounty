@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { forwardRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Plus, Zap } from "lucide-react";
@@ -14,7 +14,10 @@ const schema = z.object({
   max_price_sats: z.number().int().min(10).max(1_000_000),
 });
 
-export default function PostBountyForm({ buyerAgentId, onPosted }: { buyerAgentId: string; onPosted?: () => void }) {
+const PostBountyForm = forwardRef<
+  HTMLFormElement,
+  { buyerAgentId: string; onPosted?: () => void } & React.FormHTMLAttributes<HTMLFormElement>
+>(({ buyerAgentId, onPosted, className, ...rest }, ref) => {
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [category, setCategory] = useState("code_review");
@@ -50,7 +53,7 @@ export default function PostBountyForm({ buyerAgentId, onPosted }: { buyerAgentI
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3">
+    <form ref={ref} {...rest} onSubmit={submit} className={`space-y-3 ${className ?? ""}`}>
       <div>
         <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Title</div>
         <input
@@ -105,4 +108,7 @@ export default function PostBountyForm({ buyerAgentId, onPosted }: { buyerAgentI
       </div>
     </form>
   );
-}
+});
+PostBountyForm.displayName = "PostBountyForm";
+
+export default PostBountyForm;
