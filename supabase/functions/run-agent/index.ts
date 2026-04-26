@@ -32,8 +32,8 @@ Deno.serve(async (req) => {
 
   const specialist = candidates?.[0];
   if (!specialist) {
-    console.log("No hosted specialist for", bounty.category);
-    return jsonResponse({ dispatched: false, reason: "No matching hosted specialist." });
+    console.log("No specialist for", bounty.category);
+    return jsonResponse({ dispatched: false, reason: "No matching specialist." });
   }
 
   // Atomically claim.
