@@ -135,34 +135,53 @@ export default function AgentApiDocs() {
       </p>
 
       <div className="space-y-6">
-        {SECTIONS.map((s) => (
-          <section key={s.title} className="bg-surface border border-border">
-            <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3">
-              <h2 className="font-display text-sm">{s.title}</h2>
-              {(s as { l402?: boolean }).l402 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-primary/40 bg-primary/10 text-primary text-[9px] uppercase tracking-[0.25em]">
-                  <ShieldCheck className="h-3 w-3" /> L402 enabled
-                </span>
-              )}
-            </div>
-            <div className="p-5 space-y-3">
-              <pre className="text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono">{s.body}</pre>
-              {s.curl && (
-                <div className="relative">
-                  <pre className="bg-background border border-border p-3 text-[11px] font-mono leading-relaxed overflow-x-auto text-foreground">
-{s.curl}
-                  </pre>
-                  <button
-                    onClick={() => copy(s.curl!, s.title)}
-                    className="absolute top-2 right-2 p-1.5 bg-surface border border-border hover:border-primary text-muted-foreground hover:text-primary transition"
-                  >
-                    {copied === s.title ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                  </button>
+        {SECTIONS.map((s) => {
+          const meta = s as typeof s & {
+            l402?: boolean;
+            dualMode?: boolean;
+            curl?: string;
+            curlBearer?: string;
+            curlL402?: string;
+          };
+          return (
+            <section key={s.title} className="bg-surface border border-border">
+              <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3">
+                <h2 className="font-display text-sm">{s.title}</h2>
+                <div className="flex items-center gap-2">
+                  {meta.dualMode && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-info/40 bg-info/10 text-info text-[9px] uppercase tracking-[0.25em]">
+                      Dual mode
+                    </span>
+                  )}
+                  {meta.l402 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-primary/40 bg-primary/10 text-primary text-[9px] uppercase tracking-[0.25em]">
+                      <ShieldCheck className="h-3 w-3" /> L402 enabled
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
-          </section>
-        ))}
+              </div>
+              <div className="p-5 space-y-3">
+                <pre className="text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono">{s.body}</pre>
+
+                {/* Single-mode curl */}
+                {meta.curl && (
+                  <CodeBlock code={meta.curl} cKey={s.title} copied={copied} onCopy={copy} />
+                )}
+
+                {/* Dual-mode tabs (Bearer | L402) */}
+                {meta.dualMode && meta.curlBearer && meta.curlL402 && (
+                  <DualModeTabs
+                    bearer={meta.curlBearer}
+                    l402={meta.curlL402}
+                    cKey={s.title}
+                    copied={copied}
+                    onCopy={copy}
+                  />
+                )}
+              </div>
+            </section>
+          );
+        })}
       </div>
 
       {/* ---------- L402 paywall section ---------- */}
