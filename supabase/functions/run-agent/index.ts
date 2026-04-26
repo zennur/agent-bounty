@@ -21,9 +21,10 @@ Deno.serve(async (req) => {
   // Pick a hosted specialist that handles this category. Prefer highest reputation, lowest price ≤ max.
   const { data: candidates } = await supabase
     .from("agents")
-    .select("id, name, persona, system_prompt, base_price_sats, reputation, categories")
-    .eq("runtime", "hosted")
+    .select("id, name, persona, system_prompt, base_price_sats, reputation, categories, runtime, external_invoke_url, input_field_name")
+    .in("runtime", ["hosted", "external"])
     .eq("agent_type", "specialist")
+    .eq("is_active", true)
     .lte("base_price_sats", bounty.max_price_sats)
     .contains("categories", [bounty.category])
     .order("reputation", { ascending: false })
@@ -31,8 +32,8 @@ Deno.serve(async (req) => {
 
   const specialist = candidates?.[0];
   if (!specialist) {
-    console.log("No hosted specialist for", bounty.category);
-    return jsonResponse({ dispatched: false, reason: "No matching hosted specialist." });
+    console.log("No specialist for", bounty.category);
+    return jsonResponse({ dispatched: false, reason: "No matching specialist." });
   }
 
   // Atomically claim.
@@ -43,36 +44,61 @@ Deno.serve(async (req) => {
     return jsonResponse({ dispatched: false, reason: "Already claimed by someone else." });
   }
 
-  // Run the LLM specialist.
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) return errorResponse("LOVABLE_API_KEY not configured.", 500);
-
-  const systemPrompt = specialist.system_prompt
-    ?? `You are ${specialist.name}. ${specialist.persona}. Provide a focused, expert response.`;
-
   let result = "";
-  try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `BOUNTY: ${bounty.title}\nCATEGORY: ${bounty.category}\n\n${bounty.description ?? ""}` },
-        ],
-      }),
-    });
-    if (!resp.ok) {
-      console.error("Hosted runner AI error", resp.status, await resp.text());
-      result = `(${specialist.name} could not complete the task — upstream error.)`;
-    } else {
-      const data = await resp.json();
-      result = data.choices?.[0]?.message?.content ?? "(empty response)";
+
+  if (specialist.runtime === "external" && specialist.external_invoke_url) {
+    // External AgentBazaar agent
+    const inputKey = specialist.input_field_name ?? "query";
+    try {
+      const extResp = await fetch(specialist.external_invoke_url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          [inputKey]: `${bounty.title}\n\n${bounty.description ?? ""}`,
+        }),
+      });
+      if (!extResp.ok) {
+        console.error("External agent error", extResp.status, await extResp.text());
+        result = `(${specialist.name} returned an error — ${extResp.status})`;
+      } else {
+        const extData = await extResp.json();
+        result = extData.answer ?? extData.result ?? JSON.stringify(extData);
+      }
+    } catch (e) {
+      console.error("External agent fetch failed", e);
+      result = `(${specialist.name} unreachable — fallback verdict.)`;
     }
-  } catch (e) {
-    console.error("Hosted runner LLM failed", e);
-    result = `(${specialist.name} crashed — fallback verdict.)`;
+  } else {
+    // Hosted Lovable AI specialist
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) return errorResponse("LOVABLE_API_KEY not configured.", 500);
+
+    const systemPrompt = specialist.system_prompt
+      ?? `You are ${specialist.name}. ${specialist.persona}. Provide a focused, expert response.`;
+
+    try {
+      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `BOUNTY: ${bounty.title}\nCATEGORY: ${bounty.category}\n\n${bounty.description ?? ""}` },
+          ],
+        }),
+      });
+      if (!resp.ok) {
+        console.error("Hosted runner AI error", resp.status, await resp.text());
+        result = `(${specialist.name} could not complete the task — upstream error.)`;
+      } else {
+        const data = await resp.json();
+        result = data.choices?.[0]?.message?.content ?? "(empty response)";
+      }
+    } catch (e) {
+      console.error("Hosted runner LLM failed", e);
+      result = `(${specialist.name} crashed — fallback verdict.)`;
+    }
   }
 
   // Submit on behalf of the hosted specialist.
