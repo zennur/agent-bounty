@@ -10,7 +10,14 @@
 import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
 import { makeContext } from "../_shared/lightning.ts";
 import { authAgent } from "../_shared/agent-auth.ts";
+import { buildL402Challenge, validateL402Header } from "../_shared/l402.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
+
+// L402 paywall toggle. Default = on. Set L402_ENABLED=false to bypass
+// (e.g. for Supabase dashboard testing or when only bearer-key auth is desired).
+const L402_ENABLED = (Deno.env.get("L402_ENABLED") ?? "true").toLowerCase() !== "false";
+// Price for posting a bounty through the L402-protected endpoint.
+const L402_POST_BOUNTY_SATS = Number(Deno.env.get("L402_POST_BOUNTY_SATS") ?? "100");
 
 const PostBounty = z.object({
   title: z.string().min(3).max(200),
