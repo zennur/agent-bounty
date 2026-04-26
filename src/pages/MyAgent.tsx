@@ -47,21 +47,25 @@ export default function MyAgent() {
 
   useEffect(() => {
     if (!user) { setLoading(false); return; }
+    let cancelled = false;
+
     (async () => {
-      setLoading(true);
       const { data: a } = await supabase
         .from("agents_owner_view")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      if (cancelled) return;
       if (!a) {
         setNoAgent(true);
         setLoading(false);
         return;
       }
+      setNoAgent(false);
       setAgent(a as Agent);
       let { data: bg } = await supabase.from("budgets").select("*").eq("agent_id", a.id).maybeSingle();
+      if (cancelled) return;
       if (!bg) {
         const { data: created } = await supabase
           .from("budgets")
@@ -70,24 +74,28 @@ export default function MyAgent() {
           .maybeSingle();
         bg = created;
       }
+      if (cancelled) return;
       const { data: bs } = await supabase
         .from("bounties")
         .select("*, specialist:agents_public!bounties_specialist_agent_id_fkey(*)")
         .eq("buyer_agent_id", a.id)
         .order("created_at", { ascending: false })
         .limit(10);
+      if (cancelled) return;
       setBudget(bg as Budget | null);
       setBounties((bs ?? []) as any);
       setLoading(false);
     })();
+
+    return () => { cancelled = true; };
   }, [reloadTick, user]);
 
   // Poll for updates while the dashboard is open.
   useEffect(() => {
-    if (!agent) return;
+    if (!agent?.id) return;
     const t = setInterval(() => setReloadTick((x) => x + 1), 5000);
     return () => clearInterval(t);
-  }, [agent]);
+  }, [agent?.id]);
 
   if (!user) return <div className="p-10 text-muted-foreground">Sign in to manage your agent.</div>;
   if (loading) return <div className="p-10 text-muted-foreground">Loading agent...</div>;
