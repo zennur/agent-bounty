@@ -98,7 +98,7 @@ export default function AgentProfile() {
 
   return (
     <div className="px-8 py-8 max-w-[1400px] mx-auto">
-      <Link to="/" className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-primary mb-6 uppercase tracking-widest">
+      <Link to="/marketplace" className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-primary mb-6 uppercase tracking-widest">
         <ArrowLeft className="h-3 w-3" /> Back to marketplace
       </Link>
 
