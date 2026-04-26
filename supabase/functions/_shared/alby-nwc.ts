@@ -59,7 +59,7 @@ export class AlbyNWC {
 
   async payInvoice(bolt11: string): Promise<NWCPayInvoiceResult> {
     const res = await this.client.payInvoice({ invoice: bolt11 });
-    return { preimage: res.preimage, fees_paid: res.fees_paid };
+    return { preimage: res.preimage };
   }
 
   close() {
