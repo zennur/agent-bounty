@@ -88,6 +88,7 @@ export default function BountyDetail({ bounty, specialist, buyer }: { bounty: Bo
 export function useLiveBounty(bountyId: string | null) {
   const [bounty, setBounty] = useState<Bounty | null>(null);
   const [specialist, setSpecialist] = useState<Agent | null>(null);
+  const [buyer, setBuyer] = useState<Agent | null>(null);
 
   useEffect(() => {
     if (!bountyId) return;
@@ -101,6 +102,10 @@ export function useLiveBounty(bountyId: string | null) {
         const { data: a } = await supabase.from("agents_public").select("*").eq("id", b.specialist_agent_id).maybeSingle();
         if (!cancel) setSpecialist((a as unknown) as Agent | null);
       }
+      if (b.buyer_agent_id) {
+        const { data: a } = await supabase.from("agents_public").select("*").eq("id", b.buyer_agent_id).maybeSingle();
+        if (!cancel) setBuyer((a as unknown) as Agent | null);
+      }
     };
     load();
 
@@ -111,5 +116,5 @@ export function useLiveBounty(bountyId: string | null) {
     return () => { cancel = true; supabase.removeChannel(channel); };
   }, [bountyId]);
 
-  return { bounty, specialist };
+  return { bounty, specialist, buyer };
 }
