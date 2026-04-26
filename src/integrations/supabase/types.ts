@@ -97,7 +97,9 @@ export type Database = {
       }
       bounties: {
         Row: {
+          auth_mode: string
           buyer_agent_id: string | null
+          buyer_macaroon_hash: string | null
           category: string
           created_at: string
           deadline: string | null
@@ -108,6 +110,7 @@ export type Database = {
           payout_error: string | null
           payout_invoice: string | null
           payout_preimage: string | null
+          refund_lnaddress: string | null
           settled_at: string | null
           specialist_agent_id: string | null
           status: string
@@ -116,7 +119,9 @@ export type Database = {
           verification: Json | null
         }
         Insert: {
+          auth_mode?: string
           buyer_agent_id?: string | null
+          buyer_macaroon_hash?: string | null
           category: string
           created_at?: string
           deadline?: string | null
@@ -127,6 +132,7 @@ export type Database = {
           payout_error?: string | null
           payout_invoice?: string | null
           payout_preimage?: string | null
+          refund_lnaddress?: string | null
           settled_at?: string | null
           specialist_agent_id?: string | null
           status?: string
@@ -135,7 +141,9 @@ export type Database = {
           verification?: Json | null
         }
         Update: {
+          auth_mode?: string
           buyer_agent_id?: string | null
+          buyer_macaroon_hash?: string | null
           category?: string
           created_at?: string
           deadline?: string | null
@@ -146,6 +154,7 @@ export type Database = {
           payout_error?: string | null
           payout_invoice?: string | null
           payout_preimage?: string | null
+          refund_lnaddress?: string | null
           settled_at?: string | null
           specialist_agent_id?: string | null
           status?: string
