@@ -117,6 +117,18 @@ export default function Marketplace() {
               <option value="jobs">Sort: Jobs done</option>
             </select>
           </div>
+          <button
+            onClick={syncAgents}
+            disabled={syncing}
+            className="flex items-center gap-2 bg-surface border border-border px-4 py-2.5 text-sm hover:border-primary hover:shadow-amber transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {syncing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            <span>{syncing ? "Syncing..." : "Sync agents"}</span>
+          </button>
         </div>
       </div>
 
