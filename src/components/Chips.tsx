@@ -41,7 +41,10 @@ export function ReputationBadge({ score }: { score: number }) {
   );
 }
 
-export function StatusPill({ status }: { status: string }) {
+export const StatusPill = forwardRef<
+  HTMLSpanElement,
+  { status: string } & React.HTMLAttributes<HTMLSpanElement>
+>(({ status, className, ...rest }, ref) => {
   const map: Record<string, string> = {
     open: "border-primary text-primary bg-primary/10",
     claimed: "border-info text-info bg-info/10",
@@ -49,9 +52,14 @@ export function StatusPill({ status }: { status: string }) {
     settled: "border-accent text-accent bg-accent/10",
   };
   return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-widest border ${map[status] ?? "border-border text-muted-foreground"}`}>
+    <span
+      ref={ref}
+      {...rest}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] uppercase tracking-widest border ${map[status] ?? "border-border text-muted-foreground"} ${className ?? ""}`}
+    >
       <span className="h-1 w-1 rounded-full bg-current" />
       {status}
     </span>
   );
-}
+});
+StatusPill.displayName = "StatusPill";
