@@ -24,7 +24,11 @@ export type Database = {
           base_price_sats: number
           categories: string[]
           created_at: string
+          external_invoke_url: string | null
+          external_slug: string | null
           id: string
+          input_field_name: string | null
+          is_active: boolean
           is_my_agent: boolean
           name: string
           persona: string
@@ -46,7 +50,11 @@ export type Database = {
           base_price_sats?: number
           categories?: string[]
           created_at?: string
+          external_invoke_url?: string | null
+          external_slug?: string | null
           id?: string
+          input_field_name?: string | null
+          is_active?: boolean
           is_my_agent?: boolean
           name: string
           persona: string
@@ -68,7 +76,11 @@ export type Database = {
           base_price_sats?: number
           categories?: string[]
           created_at?: string
+          external_invoke_url?: string | null
+          external_slug?: string | null
           id?: string
+          input_field_name?: string | null
+          is_active?: boolean
           is_my_agent?: boolean
           name?: string
           persona?: string
@@ -433,7 +445,10 @@ export type Database = {
           base_price_sats: number | null
           categories: string[] | null
           created_at: string | null
+          external_invoke_url: string | null
+          external_slug: string | null
           id: string | null
+          input_field_name: string | null
           is_my_agent: boolean | null
           name: string | null
           persona: string | null
@@ -451,7 +466,10 @@ export type Database = {
           base_price_sats?: number | null
           categories?: string[] | null
           created_at?: string | null
+          external_invoke_url?: string | null
+          external_slug?: string | null
           id?: string | null
+          input_field_name?: string | null
           is_my_agent?: boolean | null
           name?: string | null
           persona?: string | null
@@ -469,7 +487,10 @@ export type Database = {
           base_price_sats?: number | null
           categories?: string[] | null
           created_at?: string | null
+          external_invoke_url?: string | null
+          external_slug?: string | null
           id?: string | null
+          input_field_name?: string | null
           is_my_agent?: boolean | null
           name?: string | null
           persona?: string | null
