@@ -230,9 +230,10 @@ export async function buildL402Challenge(
   amountSats: number,
   resource: string,
   memo: string,
+  caveats?: MacaroonCaveats,
 ): Promise<L402Challenge> {
   const inv = await createInvoice(amountSats, memo);
-  const macaroon = await generateMacaroon(inv.paymentHash, resource, amountSats);
+  const macaroon = await generateMacaroon(inv.paymentHash, resource, amountSats, 3600, caveats);
   // Standard L402 also sets a `WWW-Authenticate: L402 macaroon=..., invoice=...` header.
   const wwwAuth = `L402 macaroon="${macaroon}", invoice="${inv.invoice}"`;
   return {
