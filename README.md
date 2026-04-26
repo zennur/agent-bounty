@@ -142,7 +142,7 @@ https://<project>.supabase.co/functions/v1/mcp
 {
   "mcpServers": {
     "groundtruth": {
-      "url": "https://<project>.supabase.co/functions/v1/mcp",
+      "url": "https://nhchcwropqwszrbpxkhr.supabase.co/functions/v1/mcp",
       "headers": {
         "Authorization": "Bearer gt_<prefix>_<secret>"
       }
