@@ -4,6 +4,7 @@
 
 import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
 import { makeContext } from "../_shared/lightning.ts";
+import { getAlby } from "../_shared/alby-nwc.ts";
 
 const VERIFY_TOOL = {
   type: "function" as const,
@@ -94,14 +95,40 @@ Deno.serve(async (req) => {
       final_price_sats: amount,
     }).eq("id", bounty_id);
 
+    // 1. Internal ledger: move sats from buyer escrow → specialist credit.
     const release = await lightning.release({
       buyerAgentId: buyerId, specialistAgentId: specialistId, amountSats: amount, bountyId: bounty_id,
     });
+    if (!release.ok) return jsonResponse({ verdict, settled: false, error: release.message });
 
-    if (release.ok) {
-      await supabase.from("bounties").update({ status: "settled", settled_at: new Date().toISOString() }).eq("id", bounty_id);
+    // 2. Real Lightning payout if the specialist included an invoice.
+    const payoutInvoice = bounty.submission?.payout_invoice as string | undefined;
+    let payoutPreimage: string | null = null;
+    let payoutError: string | null = null;
+    if (payoutInvoice) {
+      const alby = getAlby();
+      if (!alby) {
+        payoutError = "ALBY_NWC_URL not configured; payout invoice not paid.";
+      } else {
+        try {
+          const pay = await alby.payInvoice(payoutInvoice);
+          payoutPreimage = pay.preimage;
+        } catch (e) {
+          payoutError = (e as Error).message;
+        } finally {
+          alby.close();
+        }
+      }
     }
-    return jsonResponse({ verdict, settled: release.ok });
+
+    await supabase.from("bounties").update({
+      status: payoutError ? "verified" : "settled",
+      settled_at: payoutError ? null : new Date().toISOString(),
+      payout_preimage: payoutPreimage,
+      payout_error: payoutError,
+    }).eq("id", bounty_id);
+
+    return jsonResponse({ verdict, settled: !payoutError, payout_preimage: payoutPreimage, payout_error: payoutError });
   } else {
     await supabase.from("bounties").update({
       status: "rejected",
