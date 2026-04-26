@@ -59,12 +59,22 @@ function b64decode(s: string): string {
 // Real macaroons (libmacaroons) support caveats & attenuation; this is enough
 // for the L402 happy path: bind a payment_hash to a resource and amount.
 
+export interface MacaroonCaveats {
+  /** Hex SHA-256 of canonical request body, prevents param-swap on retry. */
+  body_hash?: string;
+  /** Lightning address for refunds (L402 buyer flow). */
+  refund_lnaddress?: string;
+  /** Free-form role tag, e.g. "buyer" | "specialist". */
+  role?: string;
+}
+
 export interface MacaroonClaims {
   payment_hash: string; // hex sha256 of the preimage
   resource: string;     // e.g. agent slug or endpoint path
   amount_sats: number;
   issued_at: number;    // unix seconds
   expires_at: number;   // unix seconds
+  caveats?: MacaroonCaveats;
 }
 
 export async function generateMacaroon(
@@ -72,6 +82,7 @@ export async function generateMacaroon(
   agentSlug: string,
   amountSats: number,
   ttlSeconds = 3600,
+  caveats?: MacaroonCaveats,
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const claims: MacaroonClaims = {
@@ -80,10 +91,30 @@ export async function generateMacaroon(
     amount_sats: amountSats,
     issued_at: now,
     expires_at: now + ttlSeconds,
+    ...(caveats ? { caveats } : {}),
   };
   const payload = JSON.stringify(claims);
   const sig = await hmacHex(TOKEN_SECRET, payload);
   return b64encode(`${payload}.${sig}`);
+}
+
+/** Canonicalize a JSON body for body_hash binding — stable key ordering. */
+export async function canonicalBodyHash(body: unknown): Promise<string> {
+  const sortKeys = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sortKeys);
+    if (v && typeof v === "object") {
+      return Object.keys(v as Record<string, unknown>).sort().reduce<Record<string, unknown>>((acc, k) => {
+        acc[k] = sortKeys((v as Record<string, unknown>)[k]); return acc;
+      }, {});
+    }
+    return v;
+  };
+  return await sha256Hex(JSON.stringify(sortKeys(body)));
+}
+
+/** Public hex SHA-256 helper (used to fingerprint a macaroon as buyer identity). */
+export async function macaroonFingerprint(macaroon: string): Promise<string> {
+  return await sha256Hex(macaroon);
 }
 
 export async function decodeMacaroon(macaroon: string): Promise<MacaroonClaims | null> {
