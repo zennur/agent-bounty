@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.issue-agent-key]
 verify_jwt = false
+
+[functions.wallet-topup-check]
+verify_jwt = false
