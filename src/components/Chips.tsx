@@ -1,18 +1,25 @@
+import { forwardRef } from "react";
 import { categoryLabel } from "@/lib/format";
 
-export function CategoryChip({ category, active = false }: { category: string; active?: boolean }) {
+export const CategoryChip = forwardRef<
+  HTMLSpanElement,
+  { category: string; active?: boolean } & React.HTMLAttributes<HTMLSpanElement>
+>(({ category, active = false, className, ...rest }, ref) => {
   return (
     <span
+      ref={ref}
+      {...rest}
       className={`inline-flex items-center px-2 py-0.5 text-[10px] uppercase tracking-wider border ${
         active
           ? "border-primary text-primary bg-primary/10"
           : "border-border text-muted-foreground bg-surface"
-      }`}
+      } ${className ?? ""}`}
     >
       {categoryLabel(category)}
     </span>
   );
-}
+});
+CategoryChip.displayName = "CategoryChip";
 
 export function ReputationBadge({ score }: { score: number }) {
   const tier = score >= 95 ? "S" : score >= 90 ? "A" : score >= 80 ? "B" : score >= 70 ? "C" : "D";
