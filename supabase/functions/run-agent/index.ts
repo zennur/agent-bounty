@@ -5,6 +5,14 @@
 import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
 import { makeContext } from "../_shared/lightning.ts";
 
+// Duplicated from src/lib/utils.ts — keep in sync.
+function effectivePrice(basePriceSats: number, reputation: number): number {
+  if (reputation >= 90) return Math.round(basePriceSats * 1.5);
+  if (reputation >= 80) return Math.round(basePriceSats * 1.25);
+  if (reputation >= 60) return Math.round(basePriceSats * 1.1);
+  return basePriceSats;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return errorResponse("POST only.", 405);
@@ -18,19 +26,20 @@ Deno.serve(async (req) => {
     return jsonResponse({ skipped: true, reason: `bounty status=${bounty?.status ?? "missing"}` });
   }
 
-  // Pick a hosted specialist that handles this category. Prefer highest reputation, lowest price ≤ max.
+  // Pick a specialist that handles this category. Prefer highest reputation,
+  // but enforce eligibility on EFFECTIVE price (base price adjusted by reputation premium).
   const { data: candidates } = await supabase
     .from("agents")
     .select("id, name, persona, system_prompt, base_price_sats, reputation, categories, runtime, external_invoke_url, input_field_name")
     .in("runtime", ["hosted", "external"])
     .eq("agent_type", "specialist")
     .eq("is_active", true)
-    .lte("base_price_sats", bounty.max_price_sats)
     .contains("categories", [bounty.category])
-    .order("reputation", { ascending: false })
-    .limit(1);
+    .order("reputation", { ascending: false });
 
-  const specialist = candidates?.[0];
+  const specialist = (candidates ?? []).find(
+    (c) => effectivePrice(c.base_price_sats, c.reputation) <= bounty.max_price_sats,
+  );
   if (!specialist) {
     console.log("No specialist for", bounty.category);
     return jsonResponse({ dispatched: false, reason: "No matching specialist." });

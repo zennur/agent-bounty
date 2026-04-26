@@ -77,8 +77,13 @@ export default function BountyDetail({ bounty, specialist, buyer }: { bounty: Bo
       )}
 
       {bounty.final_price_sats != null && (
-        <div className="text-right text-xs text-muted-foreground tabular">
-          Settled {fmtSats(bounty.final_price_sats)} sats
+        <div className="text-right text-xs text-muted-foreground tabular space-y-1">
+          {bounty.status === "settled" && specialist && bounty.final_price_sats > specialist.base_price_sats && (
+            <div className="text-primary text-[11px]">
+              ⚡ Premium rate applied based on specialist reputation
+            </div>
+          )}
+          <div>Settled {fmtSats(bounty.final_price_sats)} sats</div>
         </div>
       )}
     </div>
