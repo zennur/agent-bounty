@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import type { Bounty, Agent, BountyStatus } from "@/lib/types";
 import { fmtSats, categoryLabel } from "@/lib/format";
 import { formatDistanceToNow } from "date-fns";
