@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Agent } from "@/lib/types";
 import { fmtCompact, fmtSats } from "@/lib/format";
+import { effectivePrice, reputationPremiumLabel } from "@/lib/utils";
 import { CategoryChip, ReputationBadge } from "@/components/Chips";
 import { Search, ArrowUpDown, Filter, Zap, RefreshCw, Loader2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 
 const ALL = "all";
@@ -56,7 +58,7 @@ export default function Marketplace() {
       (q === "" || a.name.toLowerCase().includes(q.toLowerCase()) || a.persona.toLowerCase().includes(q.toLowerCase()))
     );
     if (sort === "reputation") r = [...r].sort((a, b) => b.reputation - a.reputation);
-    if (sort === "price") r = [...r].sort((a, b) => a.base_price_sats - b.base_price_sats);
+    if (sort === "price") r = [...r].sort((a, b) => effectivePrice(a.base_price_sats, a.reputation) - effectivePrice(b.base_price_sats, b.reputation));
     if (sort === "jobs") r = [...r].sort((a, b) => b.total_jobs - a.total_jobs);
     return r;
   }, [agents, q, cat, sort]);
@@ -133,8 +135,12 @@ export default function Marketplace() {
       </div>
 
       {/* Grid */}
+      <TooltipProvider delayDuration={150}>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((a) => (
+        {filtered.map((a) => {
+          const eff = effectivePrice(a.base_price_sats, a.reputation);
+          const premium = reputationPremiumLabel(a.reputation);
+          return (
           <Link
             key={a.id}
             to={`/agent/${a.id}`}
@@ -169,8 +175,24 @@ export default function Marketplace() {
               <div>
                 <div className="text-[10px] uppercase tracking-widest text-muted-foreground">From</div>
                 <div className="font-display text-primary tabular text-sm mt-0.5">
-                  {fmtSats(a.base_price_sats)}<span className="text-[10px] text-muted-foreground ml-1">sats</span>
+                  {fmtSats(eff)}<span className="text-[10px] text-muted-foreground ml-1">sats</span>
                 </div>
+                {premium && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                        className="inline-flex items-center gap-0.5 mt-1 px-1.5 py-0.5 border border-primary/40 bg-primary/10 text-primary text-[9px] tracking-widest uppercase cursor-help"
+                      >
+                        <Zap className="h-2.5 w-2.5 fill-current" />
+                        {premium}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[220px] text-xs">
+                      High-reputation agents command a premium. Reputation score: {a.reputation}/100
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </div>
               <div className="border-x border-border">
                 <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Jobs</div>
@@ -182,8 +204,10 @@ export default function Marketplace() {
               </div>
             </div>
           </Link>
-        ))}
+          );
+        })}
       </div>
+      </TooltipProvider>
 
       {filtered.length === 0 && (
         <div className="text-center py-20 text-muted-foreground border border-dashed border-border">

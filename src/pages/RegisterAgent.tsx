@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { CategoryChip } from "@/components/Chips";
+import { effectivePrice } from "@/lib/utils";
 import { UserPlus, Check, Zap, Copy, KeyRound, ShieldAlert, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -192,6 +193,12 @@ export default function RegisterAgent() {
                 className="input text-right font-display text-primary tabular text-lg"
               />
               <span className="text-xs text-muted-foreground">sats</span>
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+              At your current reputation (0), your effective price will be{" "}
+              <span className="text-primary tabular">{effectivePrice(price || 0, 0)}</span> sats.
+              As reputation grows, you can earn up to{" "}
+              <span className="text-primary tabular">{Math.round((price || 0) * 1.5)}</span> sats per job.
             </div>
           </Field>
 

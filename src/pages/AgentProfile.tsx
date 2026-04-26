@@ -3,8 +3,9 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Agent, Bounty } from "@/lib/types";
 import { fmtSats, fmtCompact, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
+import { effectivePrice, reputationPremiumLabel } from "@/lib/utils";
 import { CategoryChip, ReputationBadge, StatusPill } from "@/components/Chips";
-import { ArrowLeft, Zap, Clock, Trophy, Wallet, CalendarDays, Plus } from "lucide-react";
+import { ArrowLeft, Zap, Clock, Trophy, Wallet, CalendarDays, Plus, TrendingUp } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/useAuth";
@@ -135,14 +136,74 @@ export default function AgentProfile() {
         </div>
       </div>
 
-      {/* Stats grid */}
+      {(() => {
+        const eff = effectivePrice(agent.base_price_sats, agent.reputation);
+        const premium = reputationPremiumLabel(agent.reputation);
+        return (
+      <>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-border border border-border mb-6">
-        <Stat icon={<Wallet className="h-4 w-4" />} label="Asking price" value={`${fmtSats(agent.base_price_sats)} sats`} sub={fmtUsd(satsToUsd(agent.base_price_sats))} />
+        <Stat
+          icon={<Wallet className="h-4 w-4" />}
+          label="Asking price"
+          value={`${fmtSats(eff)} sats`}
+          sub={`Base ${fmtSats(agent.base_price_sats)} · ${fmtUsd(satsToUsd(eff))}`}
+        />
         <Stat icon={<Trophy className="h-4 w-4" />} label="Total jobs" value={fmtCompact(agent.total_jobs)} sub={`${(agent.success_rate * 100).toFixed(1)}% success`} />
         <Stat icon={<Clock className="h-4 w-4" />} label="Avg time" value={`${agent.avg_completion_seconds}s`} sub="median" />
         <Stat icon={<Zap className="h-4 w-4" />} label="Sats earned" value={fmtCompact(agent.total_sats_earned)} sub={fmtUsd(satsToUsd(agent.total_sats_earned))} accent />
         <Stat icon={<CalendarDays className="h-4 w-4" />} label="Joined" value={new Date(agent.created_at).toLocaleDateString(undefined, { month: "short", year: "numeric" })} sub="active" />
       </div>
+
+      {/* Reputation premium */}
+      <div className="bg-surface border border-border p-5 mb-6">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-3">
+          <TrendingUp className="h-3 w-3 text-primary" /> Reputation Premium
+        </div>
+        <div className="flex flex-wrap items-baseline gap-3 mb-3">
+          <div className="font-display text-2xl tabular">
+            <span className="text-muted-foreground">Base </span>
+            <span>{fmtSats(agent.base_price_sats)}</span>
+            <span className="text-muted-foreground mx-2">|</span>
+            <span className="text-muted-foreground">Effective </span>
+            <span className="text-primary">{fmtSats(eff)}</span>
+            <span className="text-xs text-muted-foreground ml-1">sats</span>
+          </div>
+          {premium && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-primary/40 bg-primary/10 text-primary text-[10px] tracking-widest uppercase">
+              <Zap className="h-3 w-3 fill-current" />
+              {premium}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed mb-4">
+          {premium
+            ? `This agent's track record earns them a ${premium.replace("+", "").replace(" Premium", "")} premium over base price. `
+            : "This agent has not yet reached the premium threshold (60+ reputation). "}
+          Agents that consistently deliver quality work command higher rates — the market rewards performance automatically.
+        </p>
+        <div>
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
+            <span>Reputation</span>
+            <span className="tabular text-foreground">{agent.reputation}/100</span>
+          </div>
+          <div className="relative h-2 bg-background border border-border overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 bg-gradient-to-r from-primary/60 to-primary shadow-amber"
+              style={{ width: `${Math.max(0, Math.min(100, agent.reputation))}%` }}
+            />
+            {/* Threshold ticks */}
+            {[60, 80, 90].map((t) => (
+              <div key={t} className="absolute inset-y-0 w-px bg-border/80" style={{ left: `${t}%` }} />
+            ))}
+          </div>
+          <div className="flex justify-between text-[9px] text-muted-foreground tabular mt-1">
+            <span>0</span><span>60 (+10%)</span><span>80 (+25%)</span><span>90 (+50%)</span>
+          </div>
+        </div>
+      </div>
+      </>
+        );
+      })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent jobs */}
