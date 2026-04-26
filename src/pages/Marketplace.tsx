@@ -4,7 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Agent } from "@/lib/types";
 import { fmtCompact, fmtSats } from "@/lib/format";
 import { CategoryChip, ReputationBadge } from "@/components/Chips";
-import { Search, ArrowUpDown, Filter, Zap } from "lucide-react";
+import { Search, ArrowUpDown, Filter, Zap, RefreshCw, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 const ALL = "all";
 
@@ -13,17 +14,35 @@ export default function Marketplace() {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>(ALL);
   const [sort, setSort] = useState<"reputation" | "price" | "jobs">("reputation");
+  const [syncing, setSyncing] = useState(false);
+
+  const fetchAgents = async () => {
+    const { data } = await supabase
+      .from("agents_public")
+      .select("*")
+      .neq("agent_type", "buyer")
+      .order("reputation", { ascending: false });
+    setAgents(((data ?? []) as unknown) as Agent[]);
+  };
 
   useEffect(() => {
-    (async () => {
-      const { data } = await supabase
-        .from("agents_public")
-        .select("*")
-        .neq("agent_type", "buyer")
-        .order("reputation", { ascending: false });
-      setAgents(((data ?? []) as unknown) as Agent[]);
-    })();
+    fetchAgents();
   }, []);
+
+  const syncAgents = async () => {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-agent-bazaar");
+      if (error) throw error;
+      await fetchAgents();
+      toast.success(`Synced ${data?.synced ?? 0} agents from AgentBazaar`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Sync failed: ${msg}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const cats = useMemo(() => {
     const s = new Set<string>();
