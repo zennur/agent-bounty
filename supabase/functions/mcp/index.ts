@@ -97,23 +97,28 @@ server.tool("get_agent_details", {
 // -------------------- hire_agent --------------------
 server.tool("hire_agent", {
   description:
-    "Hire an agent and get the result inline. Picks the best-matching specialist for the category (or uses preferred_agent_id), invokes it synchronously via the AgentBazaar backend, settles payment in sats, and returns the agent's answer directly. No polling needed. Requires an agent API key in the Authorization header.",
+    "Hire an agent and get the result inline. Two auth modes:\n" +
+    "  • Bearer: pass `Authorization: Bearer gt_<key>` — sats are escrowed from the agent's wallet.\n" +
+    "  • L402 (keyless): on first call, omit auth → returns a 402 challenge with `invoice` + `macaroon` to pay over Lightning. Retry with `Authorization: L402 <macaroon>:<preimage>` to execute.\n" +
+    "Picks best-match specialist for the category (or uses preferred_agent_id), invokes synchronously, returns the answer. No polling.",
   inputSchema: z.object({
     title: z.string().min(3).max(200).describe("Short task title"),
     description: z.string().max(4000).optional().describe("Detailed task description / payload"),
     category: z.string().min(2).max(60).describe("Category to route the request to"),
     max_price_sats: z.number().int().min(10).max(1_000_000).describe("Max sats willing to pay"),
     preferred_agent_id: z.string().optional().describe("Optional: specific agent id to hire"),
+    refund_lnaddress: z.string().optional().describe("L402 mode only: Lightning address for refunds if the agent fails"),
   }),
   handler: async (args, ctx) => {
-    const buyerAgentId = (ctx.authInfo?.extra as { agent_id?: string } | undefined)?.agent_id;
-    if (!buyerAgentId) {
-      return err("Authentication required: pass a valid agent API key as 'Authorization: Bearer gt_...'.");
-    }
+    const extra = ctx.authInfo?.extra as
+      | { agent_id?: string; agent_name?: string; l402_header?: string }
+      | undefined;
+    const buyerAgentId = extra?.agent_id;
+    const l402Header = extra?.l402_header;
 
     const { supabase, lightning } = makeContext();
 
-    // 1. Pick a specialist: preferred id first, else best-match by category/price/reputation.
+    // 1. Pick a specialist.
     type Specialist = {
       id: string;
       name: string;
@@ -158,37 +163,95 @@ server.tool("hire_agent", {
 
     const price = specialist.base_price_sats;
 
-    // 2. Escrow sats from buyer's wallet.
-    const escrow = await lightning.escrow({
-      buyerAgentId,
-      amountSats: price,
-      bountyId: "pending",
-    });
-    if (!escrow.ok) return err(escrow.message ?? "Escrow failed.");
+    // 2. Auth gate: prefer Bearer (buyerAgentId); else require L402.
+    let authMode: "bearer" | "l402";
+    let macaroonHash: string | null = null;
 
-    // 3. Create the bounty row already in 'claimed' state so the dispatcher trigger doesn't double-fire.
+    if (buyerAgentId) {
+      authMode = "bearer";
+    } else if (l402Header) {
+      const v = await validateL402Header(l402Header);
+      if (!v.ok || !v.claims) {
+        return err(`L402 auth failed: ${v.reason ?? "invalid"}.`);
+      }
+      if (v.claims.amount_sats < price) {
+        return err(`L402 macaroon paid ${v.claims.amount_sats} sats, but ${specialist.name} costs ${price}.`);
+      }
+      if (v.claims.resource && v.claims.resource !== "mcp:hire_agent" && v.claims.resource !== specialist.id) {
+        return err(`L402 macaroon bound to resource "${v.claims.resource}", not this hire.`);
+      }
+      const macaroon = l402Header.match(/^L402\s+([^:\s]+):/)?.[1] ?? "";
+      macaroonHash = await macaroonFingerprint(macaroon);
+      authMode = "l402";
+    } else {
+      // No auth at all → return L402 challenge so the caller can pay & retry.
+      const challenge = await buildL402Challenge(
+        price,
+        "mcp:hire_agent",
+        `Hire ${specialist.name} via MCP`,
+        { role: "buyer", refund_lnaddress: args.refund_lnaddress },
+      );
+      return {
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            status: 402,
+            error: "Payment Required",
+            mode: "l402",
+            specialist: { id: specialist.id, name: specialist.name, price_sats: price },
+            invoice: challenge.body.invoice,
+            macaroon: challenge.body.macaroon,
+            payment_hash: challenge.body.payment_hash,
+            amount_sats: challenge.body.amount_sats,
+            demo_preimage: challenge.body.demo_preimage,
+            instructions:
+              "Pay the BOLT11 invoice over Lightning, then re-call hire_agent with header " +
+              `'Authorization: L402 ${challenge.body.macaroon}:<preimage>'. ` +
+              "In demo/mock mode, use the demo_preimage above.",
+          }, null, 2),
+        }],
+        isError: false,
+      };
+    }
+
+    // 3. Bearer-mode escrow (skip entirely for L402 — invoice already paid).
+    if (authMode === "bearer") {
+      const escrow = await lightning.escrow({
+        buyerAgentId: buyerAgentId!,
+        amountSats: price,
+        bountyId: "pending",
+      });
+      if (!escrow.ok) return err(escrow.message ?? "Escrow failed.");
+    }
+
+    // 4. Create the bounty row in 'claimed' state so the dispatcher trigger doesn't fire.
     const { data: bounty, error: insertErr } = await supabase
       .from("bounties")
       .insert({
-        buyer_agent_id: buyerAgentId,
+        buyer_agent_id: authMode === "bearer" ? buyerAgentId : null,
         specialist_agent_id: specialist.id,
         title: args.title,
         description: args.description ?? null,
         category: args.category,
         max_price_sats: args.max_price_sats,
         status: "claimed",
+        auth_mode: authMode,
+        buyer_macaroon_hash: macaroonHash,
+        refund_lnaddress: authMode === "l402" ? args.refund_lnaddress ?? null : null,
       })
       .select("id")
       .single();
 
     if (insertErr || !bounty) {
-      await lightning.refund({ buyerAgentId, amountSats: price, bountyId: "pending" });
+      if (authMode === "bearer") {
+        await lightning.refund({ buyerAgentId: buyerAgentId!, amountSats: price, bountyId: "pending" });
+      }
       return err(insertErr?.message ?? "Failed to create bounty.");
     }
 
     const jobId = bounty.id;
 
-    // 4. Invoke the agent synchronously.
+    // 5. Invoke the agent synchronously.
     const taskPayload = `${args.title}\n\n${args.description ?? ""}`.trim();
     let agentResult: string | null = null;
     let agentError: string | null = null;
@@ -208,7 +271,6 @@ server.tool("hire_agent", {
           agentResult = data.answer ?? data.result ?? JSON.stringify(data);
         }
       } else if (specialist.runtime === "hosted") {
-        // Hosted Lovable AI specialist
         const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
         if (!LOVABLE_API_KEY) {
           agentError = "Hosted runtime not configured (missing LOVABLE_API_KEY).";
@@ -241,9 +303,12 @@ server.tool("hire_agent", {
       agentError = e instanceof Error ? e.message : String(e);
     }
 
-    // 5. Settle: success → release sats + mark settled; failure → refund + mark failed.
+    // 6. Settle.
     if (agentError || !agentResult) {
-      await lightning.refund({ buyerAgentId, amountSats: price, bountyId: jobId });
+      if (authMode === "bearer") {
+        await lightning.refund({ buyerAgentId: buyerAgentId!, amountSats: price, bountyId: jobId });
+      }
+      // L402: refund must go to refund_lnaddress out-of-band — record the failure.
       await supabase
         .from("bounties")
         .update({
@@ -252,15 +317,54 @@ server.tool("hire_agent", {
           submission: { error: agentError, attempted_at: new Date().toISOString() },
         })
         .eq("id", jobId);
-      return err(`Agent invocation failed: ${agentError ?? "no result"}. Sats refunded.`);
+      const refundNote = authMode === "l402"
+        ? ` Refund owed to ${args.refund_lnaddress ?? "(no refund address provided)"}.`
+        : " Sats refunded.";
+      return err(`Agent invocation failed: ${agentError ?? "no result"}.${refundNote}`);
     }
 
-    const release = await lightning.release({
-      buyerAgentId,
-      specialistAgentId: specialist.id,
-      amountSats: price,
-      bountyId: jobId,
-    });
+    // Success: pay the specialist. For L402, source funds = the L402 invoice itself (from_agent_id null).
+    let payoutRef: string | null = null;
+    if (authMode === "bearer") {
+      const release = await lightning.release({
+        buyerAgentId: buyerAgentId!,
+        specialistAgentId: specialist.id,
+        amountSats: price,
+        bountyId: jobId,
+      });
+      payoutRef = release.txn_id ?? null;
+    } else {
+      // L402 settlement: log the credit to the specialist directly.
+      const { data: txn } = await supabase
+        .from("transactions")
+        .insert({
+          from_agent_id: null,
+          to_agent_id: specialist.id,
+          bounty_id: jobId,
+          amount_sats: price,
+          status: "settled",
+        })
+        .select("id")
+        .single();
+      payoutRef = txn?.id ?? null;
+      const { data: spec } = await supabase
+        .from("agents")
+        .select("total_sats_earned, total_jobs, success_rate")
+        .eq("id", specialist.id)
+        .single();
+      if (spec) {
+        const newJobs = (spec.total_jobs ?? 0) + 1;
+        const newRate = ((spec.success_rate ?? 1) * (spec.total_jobs ?? 0) + 1) / newJobs;
+        await supabase
+          .from("agents")
+          .update({
+            total_sats_earned: (spec.total_sats_earned ?? 0) + price,
+            total_jobs: newJobs,
+            success_rate: Number(newRate.toFixed(4)),
+          })
+          .eq("id", specialist.id);
+      }
+    }
 
     await supabase
       .from("bounties")
@@ -269,18 +373,19 @@ server.tool("hire_agent", {
         final_price_sats: price,
         submission: {
           result: agentResult,
-          notes: `MCP synchronous invocation via ${specialist.name}`,
+          notes: `MCP synchronous invocation via ${specialist.name} (${authMode})`,
           submitted_at: new Date().toISOString(),
         },
-        verification: { ok: true, mode: "mcp_synchronous" },
+        verification: { ok: true, mode: `mcp_synchronous_${authMode}` },
         settled_at: new Date().toISOString(),
-        payout_preimage: release.txn_id ?? null,
+        payout_preimage: payoutRef,
       })
       .eq("id", jobId);
 
     return json({
       job_id: jobId,
       status: "settled",
+      auth_mode: authMode,
       result: agentResult,
       specialist: {
         id: specialist.id,
@@ -289,7 +394,7 @@ server.tool("hire_agent", {
         runtime: specialist.runtime,
       },
       paid_sats: price,
-      payout_ref: release.txn_id ?? null,
+      payout_ref: payoutRef,
     });
   },
 });
