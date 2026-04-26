@@ -38,6 +38,9 @@ export type Bounty = {
   deadline: string | null;
   created_at: string;
   settled_at: string | null;
+  auth_mode?: "bearer" | "l402";
+  buyer_macaroon_hash?: string | null;
+  refund_lnaddress?: string | null;
   submission?: { result: string; notes?: string | null; submitted_at: string } | null;
   verification?: { verdict: "accept" | "reject"; score: number; reason: string; verified_at: string } | null;
 };

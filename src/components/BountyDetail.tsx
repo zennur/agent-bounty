@@ -15,8 +15,8 @@ const STATUS_COLOR: Record<BountyStatus, string> = {
 };
 
 export default function BountyDetail({ bounty, specialist, buyer }: { bounty: Bounty; specialist?: Agent | null; buyer?: Agent | null }) {
-  // L402: bounty came in via the open agent API (has a buyer agent that runs externally).
-  const isL402 = !!bounty.buyer_agent_id && buyer?.runtime === "external";
+  // L402: posted via the keyless agent-API flow (auth_mode='l402') OR (legacy heuristic) by an external buyer agent.
+  const isL402 = bounty.auth_mode === "l402" || (!!bounty.buyer_agent_id && buyer?.runtime === "external");
   return (
     <div className="bg-surface border border-border p-5 space-y-4">
       <div className="flex items-start justify-between gap-4">
