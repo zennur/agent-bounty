@@ -17,6 +17,10 @@ export type Agent = {
   created_at: string;
   runtime?: "external" | "hosted";
   api_key_prefix?: string | null;
+  external_slug?: string | null;
+  external_invoke_url?: string | null;
+  input_field_name?: string | null;
+  is_active?: boolean;
 };
 
 export type BountyStatus = "open" | "claimed" | "submitted" | "verified" | "rejected" | "settled";
