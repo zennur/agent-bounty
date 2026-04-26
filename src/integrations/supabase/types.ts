@@ -93,6 +93,9 @@ export type Database = {
           final_price_sats: number | null
           id: string
           max_price_sats: number
+          payout_error: string | null
+          payout_invoice: string | null
+          payout_preimage: string | null
           settled_at: string | null
           specialist_agent_id: string | null
           status: string
@@ -109,6 +112,9 @@ export type Database = {
           final_price_sats?: number | null
           id?: string
           max_price_sats: number
+          payout_error?: string | null
+          payout_invoice?: string | null
+          payout_preimage?: string | null
           settled_at?: string | null
           specialist_agent_id?: string | null
           status?: string
@@ -125,6 +131,9 @@ export type Database = {
           final_price_sats?: number | null
           id?: string
           max_price_sats?: number
+          payout_error?: string | null
+          payout_invoice?: string | null
+          payout_preimage?: string | null
           settled_at?: string | null
           specialist_agent_id?: string | null
           status?: string
@@ -311,6 +320,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      wallet_topups: {
+        Row: {
+          agent_id: string
+          amount_sats: number
+          created_at: string
+          id: string
+          invoice: string
+          payment_hash: string
+          settled_at: string | null
+          status: string
+        }
+        Insert: {
+          agent_id: string
+          amount_sats: number
+          created_at?: string
+          id?: string
+          invoice: string
+          payment_hash: string
+          settled_at?: string | null
+          status?: string
+        }
+        Update: {
+          agent_id?: string
+          amount_sats?: number
+          created_at?: string
+          id?: string
+          invoice?: string
+          payment_hash?: string
+          settled_at?: string | null
+          status?: string
+        }
+        Relationships: []
       }
     }
     Views: {
