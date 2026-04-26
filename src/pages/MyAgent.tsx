@@ -5,7 +5,8 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Agent, Bounty, Budget } from "@/lib/types";
 import { fmtSats, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
 import { ReputationBadge, StatusPill } from "@/components/Chips";
-import { Wallet, SlidersHorizontal, Activity, Zap, Plus } from "lucide-react";
+import { Wallet, SlidersHorizontal, Activity, Zap, Plus, Key, Copy, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import PostBountyForm from "@/components/PostBountyForm";
 import BountyDetail from "@/components/BountyDetail";
@@ -18,6 +19,31 @@ export default function MyAgent() {
   const [reloadTick, setReloadTick] = useState(0);
   const [loading, setLoading] = useState(true);
   const [noAgent, setNoAgent] = useState(false);
+  const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  const [issuingKey, setIssuingKey] = useState(false);
+
+  const issueKey = async () => {
+    if (!agent) return;
+    if (agent.api_key_prefix && !confirm("Rotating will invalidate the existing API key. Continue?")) return;
+    setIssuingKey(true);
+    const { data, error } = await supabase.functions.invoke("issue-agent-key", {
+      body: { agent_id: agent.id },
+    });
+    setIssuingKey(false);
+    if (error || !data?.token) {
+      toast.error(error?.message ?? "Failed to issue key");
+      return;
+    }
+    setIssuedToken(data.token);
+    setReloadTick((t) => t + 1);
+    toast.success("API key issued — copy it now, it will not be shown again.");
+  };
+
+  const copyToken = async () => {
+    if (!issuedToken) return;
+    await navigator.clipboard.writeText(issuedToken);
+    toast.success("Copied to clipboard");
+  };
 
   useEffect(() => {
     if (!user) { setLoading(false); return; }
@@ -177,6 +203,72 @@ export default function MyAgent() {
               </div>
             </div>
           </button>
+        </div>
+      </div>
+
+      {/* API key for autonomous / MCP access */}
+      <div className="bg-surface border border-border mb-6">
+        <div className="px-5 py-3 border-b border-border flex items-center gap-3">
+          <Key className="h-4 w-4 text-primary" />
+          <h3 className="font-display text-sm uppercase tracking-widest">Agent API key</h3>
+          <span className="ml-auto text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+            For MCP clients & direct API calls
+          </span>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Use this key to let an external agent (Claude Desktop, Cursor, your own script) hire from the marketplace
+            on behalf of <span className="text-foreground">{agent.name}</span>. Pass it as{" "}
+            <code className="text-primary bg-background px-1 py-0.5">Authorization: Bearer gt_...</code>.
+          </p>
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1 bg-background border border-border px-3 py-2 font-mono text-sm tabular">
+              {agent.api_key_prefix ? (
+                <span className="text-muted-foreground">gt_{agent.api_key_prefix}_•••••••••••••••••••••••••••••••••••</span>
+              ) : (
+                <span className="text-muted-foreground italic">No key issued yet.</span>
+              )}
+            </div>
+            <button
+              onClick={issueKey}
+              disabled={issuingKey}
+              className="bg-primary text-primary-foreground font-display text-sm uppercase tracking-widest px-4 py-2 hover:shadow-amber transition disabled:opacity-50 flex items-center gap-2"
+            >
+              {issuingKey ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Key className="h-4 w-4" />}
+              {agent.api_key_prefix ? "Rotate key" : "Issue key"}
+            </button>
+          </div>
+
+          {issuedToken && (
+            <div className="border border-primary bg-background p-4">
+              <div className="text-[10px] uppercase tracking-[0.3em] text-primary mb-2">
+                Save this token now — it will not be shown again
+              </div>
+              <div className="flex items-center gap-3">
+                <code className="flex-1 font-mono text-sm break-all">{issuedToken}</code>
+                <button
+                  onClick={copyToken}
+                  className="border border-border hover:border-primary p-2 transition"
+                  title="Copy"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer hover:text-foreground">MCP client config</summary>
+            <pre className="mt-2 bg-background border border-border p-3 overflow-x-auto text-[11px]">{`{
+  "mcpServers": {
+    "agentbazaar": {
+      "url": "${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mcp",
+      "headers": { "Authorization": "Bearer gt_xxx_yyy" }
+    }
+  }
+}`}</pre>
+          </details>
         </div>
       </div>
 
