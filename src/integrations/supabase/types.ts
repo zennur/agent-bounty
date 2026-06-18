@@ -24,7 +24,11 @@ export type Database = {
           base_price_sats: number
           categories: string[]
           created_at: string
+          external_invoke_url: string | null
+          external_slug: string | null
           id: string
+          input_field_name: string | null
+          is_active: boolean
           is_my_agent: boolean
           name: string
           persona: string
@@ -46,7 +50,11 @@ export type Database = {
           base_price_sats?: number
           categories?: string[]
           created_at?: string
+          external_invoke_url?: string | null
+          external_slug?: string | null
           id?: string
+          input_field_name?: string | null
+          is_active?: boolean
           is_my_agent?: boolean
           name: string
           persona: string
@@ -68,7 +76,11 @@ export type Database = {
           base_price_sats?: number
           categories?: string[]
           created_at?: string
+          external_invoke_url?: string | null
+          external_slug?: string | null
           id?: string
+          input_field_name?: string | null
+          is_active?: boolean
           is_my_agent?: boolean
           name?: string
           persona?: string
@@ -85,7 +97,9 @@ export type Database = {
       }
       bounties: {
         Row: {
+          auth_mode: string
           buyer_agent_id: string | null
+          buyer_macaroon_hash: string | null
           category: string
           created_at: string
           deadline: string | null
@@ -93,6 +107,10 @@ export type Database = {
           final_price_sats: number | null
           id: string
           max_price_sats: number
+          payout_error: string | null
+          payout_invoice: string | null
+          payout_preimage: string | null
+          refund_lnaddress: string | null
           settled_at: string | null
           specialist_agent_id: string | null
           status: string
@@ -101,7 +119,9 @@ export type Database = {
           verification: Json | null
         }
         Insert: {
+          auth_mode?: string
           buyer_agent_id?: string | null
+          buyer_macaroon_hash?: string | null
           category: string
           created_at?: string
           deadline?: string | null
@@ -109,6 +129,10 @@ export type Database = {
           final_price_sats?: number | null
           id?: string
           max_price_sats: number
+          payout_error?: string | null
+          payout_invoice?: string | null
+          payout_preimage?: string | null
+          refund_lnaddress?: string | null
           settled_at?: string | null
           specialist_agent_id?: string | null
           status?: string
@@ -117,7 +141,9 @@ export type Database = {
           verification?: Json | null
         }
         Update: {
+          auth_mode?: string
           buyer_agent_id?: string | null
+          buyer_macaroon_hash?: string | null
           category?: string
           created_at?: string
           deadline?: string | null
@@ -125,6 +151,10 @@ export type Database = {
           final_price_sats?: number | null
           id?: string
           max_price_sats?: number
+          payout_error?: string | null
+          payout_invoice?: string | null
+          payout_preimage?: string | null
+          refund_lnaddress?: string | null
           settled_at?: string | null
           specialist_agent_id?: string | null
           status?: string
@@ -312,6 +342,39 @@ export type Database = {
           },
         ]
       }
+      wallet_topups: {
+        Row: {
+          agent_id: string
+          amount_sats: number
+          created_at: string
+          id: string
+          invoice: string
+          payment_hash: string
+          settled_at: string | null
+          status: string
+        }
+        Insert: {
+          agent_id: string
+          amount_sats: number
+          created_at?: string
+          id?: string
+          invoice: string
+          payment_hash: string
+          settled_at?: string | null
+          status?: string
+        }
+        Update: {
+          agent_id?: string
+          amount_sats?: number
+          created_at?: string
+          id?: string
+          invoice?: string
+          payment_hash?: string
+          settled_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       agents_owner_view: {
@@ -391,7 +454,10 @@ export type Database = {
           base_price_sats: number | null
           categories: string[] | null
           created_at: string | null
+          external_invoke_url: string | null
+          external_slug: string | null
           id: string | null
+          input_field_name: string | null
           is_my_agent: boolean | null
           name: string | null
           persona: string | null
@@ -409,7 +475,10 @@ export type Database = {
           base_price_sats?: number | null
           categories?: string[] | null
           created_at?: string | null
+          external_invoke_url?: string | null
+          external_slug?: string | null
           id?: string | null
+          input_field_name?: string | null
           is_my_agent?: boolean | null
           name?: string | null
           persona?: string | null
@@ -427,7 +496,10 @@ export type Database = {
           base_price_sats?: number | null
           categories?: string[] | null
           created_at?: string | null
+          external_invoke_url?: string | null
+          external_slug?: string | null
           id?: string | null
+          input_field_name?: string | null
           is_my_agent?: boolean | null
           name?: string | null
           persona?: string | null

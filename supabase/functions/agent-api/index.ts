@@ -10,13 +10,29 @@
 import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
 import { makeContext } from "../_shared/lightning.ts";
 import { authAgent } from "../_shared/agent-auth.ts";
+import {
+  buildL402Challenge,
+  validateL402Header,
+  canonicalBodyHash,
+  macaroonFingerprint,
+} from "../_shared/l402.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
 
+// L402 paywall toggle. Default = on. Set L402_ENABLED=false to bypass
+// (e.g. for Supabase dashboard testing or when only bearer-key auth is desired).
+const L402_ENABLED = (Deno.env.get("L402_ENABLED") ?? "true").toLowerCase() !== "false";
+
+// Bearer payload — buyer has an account, sats come from wallet_balance_sats.
 const PostBounty = z.object({
   title: z.string().min(3).max(200),
   description: z.string().max(2000).optional(),
   category: z.string().min(2).max(60),
   max_price_sats: z.number().int().min(10).max(1_000_000),
+});
+
+// L402 payload — keyless buyer, refund_lnaddress required so we can refund on reject/cancel.
+const PostBountyL402 = PostBounty.extend({
+  refund_lnaddress: z.string().min(3).max(200),
 });
 
 const SubmitBounty = z.object({
@@ -63,36 +79,112 @@ Deno.serve(async (req) => {
     }
 
     // -------------------- POST /bounties --------------------
+    // Dual-mode auth:
+    //   • Bearer  → existing account flow: escrow from wallet_balance_sats, attribute bounty to agent.
+    //   • L402    → keyless flow: invoice == max_price_sats, no account, refund_lnaddress required.
+    //   • Neither → 402 challenge (only when L402_ENABLED).
     if (req.method === "POST" && path === "/bounties") {
-      const agent = await authAgent(req, supabase);
-      if (!agent) return errorResponse("Invalid or missing API key.", 401);
+      const authHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
+      const isBearer = !!authHeader && /^Bearer\s+/i.test(authHeader);
+      const isL402 = !!authHeader && /^L402\s+/i.test(authHeader);
+
+      // ---- Mode A: Bearer (account + wallet) ----
+      if (isBearer) {
+        const agent = await authAgent(req, supabase);
+        if (!agent) return errorResponse("Invalid or missing API key.", 401);
+        const body = await req.json().catch(() => null);
+        const parsed = PostBounty.safeParse(body);
+        if (!parsed.success) return errorResponse("Invalid body.", 400, { issues: parsed.error.flatten() });
+
+        const escrow = await lightning.escrow({
+          buyerAgentId: agent.id, amountSats: parsed.data.max_price_sats, bountyId: "pending",
+        });
+        if (!escrow.ok) return errorResponse(escrow.message ?? "Escrow failed.", 402);
+
+        const { data, error } = await supabase.from("bounties").insert({
+          buyer_agent_id: agent.id,
+          title: parsed.data.title,
+          description: parsed.data.description ?? null,
+          category: parsed.data.category,
+          max_price_sats: parsed.data.max_price_sats,
+          auth_mode: "bearer",
+          status: "open",
+        }).select("*").single();
+
+        if (error) {
+          await lightning.refund({ buyerAgentId: agent.id, amountSats: parsed.data.max_price_sats, bountyId: "pending" });
+          return errorResponse(error.message, 500);
+        }
+        return jsonResponse({ bounty: data }, 201);
+      }
+
+      // ---- Mode B: L402 (keyless) ----
+      // Step 1: no header → 402 challenge. The buyer must include max_price_sats and
+      // refund_lnaddress in the FIRST request body so the invoice is correctly priced
+      // and we can bind body_hash to prevent param-swap on retry.
+      if (!isL402) {
+        if (!L402_ENABLED) return errorResponse("Authentication required.", 401);
+        const draft = await req.json().catch(() => null);
+        const parsed = PostBountyL402.safeParse(draft);
+        if (!parsed.success) {
+          return errorResponse(
+            "L402 mode requires title, category, max_price_sats and refund_lnaddress in the request body.",
+            400,
+            { issues: parsed.error.flatten() },
+          );
+        }
+        const bodyHash = await canonicalBodyHash(parsed.data);
+        const challenge = await buildL402Challenge(
+          parsed.data.max_price_sats,
+          "POST /agent-api/bounties",
+          `GroundTruth · ${parsed.data.title.slice(0, 24)}`,
+          { body_hash: bodyHash, refund_lnaddress: parsed.data.refund_lnaddress, role: "buyer" },
+        );
+        return new Response(JSON.stringify(challenge.body), {
+          status: 402,
+          headers: { ...corsHeaders, ...challenge.headers, "Content-Type": "application/json" },
+        });
+      }
+
+      // Step 2: L402 header present. Validate preimage + body_hash, then insert.
+      const v = await validateL402Header(authHeader);
+      if (!v.ok || !v.claims) return errorResponse(`L402 invalid: ${v.reason}`, 401);
+
       const body = await req.json().catch(() => null);
-      const parsed = PostBounty.safeParse(body);
+      const parsed = PostBountyL402.safeParse(body);
       if (!parsed.success) return errorResponse("Invalid body.", 400, { issues: parsed.error.flatten() });
 
-      const escrow = await lightning.escrow({
-        buyerAgentId: agent.id,
-        amountSats: parsed.data.max_price_sats,
-        bountyId: "pending",
-      });
-      if (!escrow.ok) return errorResponse(escrow.message ?? "Escrow failed.", 402);
+      // Body must match the body_hash baked into the macaroon during step 1.
+      const expectedHash = v.claims.caveats?.body_hash;
+      const actualHash = await canonicalBodyHash(parsed.data);
+      if (!expectedHash || expectedHash !== actualHash) {
+        return errorResponse("Body does not match the macaroon's body_hash caveat (params changed between 402 and retry).", 401);
+      }
+      // Invoice amount must equal the bounty price.
+      if (v.claims.amount_sats !== parsed.data.max_price_sats) {
+        return errorResponse("Macaroon amount does not match max_price_sats.", 401);
+      }
+
+      // Extract the macaroon (we know the header matches the L402 grammar).
+      const macaroon = authHeader!.match(/^L402\s+([^:\s]+):/i)![1];
+      const fp = await macaroonFingerprint(macaroon);
 
       const { data, error } = await supabase.from("bounties").insert({
-        buyer_agent_id: agent.id,
+        buyer_agent_id: null,
+        buyer_macaroon_hash: fp,
+        refund_lnaddress: parsed.data.refund_lnaddress,
         title: parsed.data.title,
         description: parsed.data.description ?? null,
         category: parsed.data.category,
         max_price_sats: parsed.data.max_price_sats,
+        auth_mode: "l402",
         status: "open",
       }).select("*").single();
 
-      if (error) {
-        // Roll the escrow back on insert failure.
-        await lightning.refund({ buyerAgentId: agent.id, amountSats: parsed.data.max_price_sats, bountyId: "pending" });
-        return errorResponse(error.message, 500);
-      }
+      if (error) return errorResponse(error.message, 500);
       return jsonResponse({ bounty: data }, 201);
     }
+
 
     // -------------------- POST /bounties/:id/claim --------------------
     const claimMatch = path.match(/^\/bounties\/([0-9a-f-]{36})\/claim$/i);

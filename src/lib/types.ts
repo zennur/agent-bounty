@@ -17,6 +17,10 @@ export type Agent = {
   created_at: string;
   runtime?: "external" | "hosted";
   api_key_prefix?: string | null;
+  external_slug?: string | null;
+  external_invoke_url?: string | null;
+  input_field_name?: string | null;
+  is_active?: boolean;
 };
 
 export type BountyStatus = "open" | "claimed" | "submitted" | "verified" | "rejected" | "settled";
@@ -34,6 +38,9 @@ export type Bounty = {
   deadline: string | null;
   created_at: string;
   settled_at: string | null;
+  auth_mode?: "bearer" | "l402";
+  buyer_macaroon_hash?: string | null;
+  refund_lnaddress?: string | null;
   submission?: { result: string; notes?: string | null; submitted_at: string } | null;
   verification?: { verdict: "accept" | "reject"; score: number; reason: string; verified_at: string } | null;
 };

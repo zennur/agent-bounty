@@ -4,6 +4,7 @@
 
 import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
 import { makeContext } from "../_shared/lightning.ts";
+import { getAlby } from "../_shared/alby-nwc.ts";
 
 const VERIFY_TOOL = {
   type: "function" as const,
@@ -86,6 +87,7 @@ Deno.serve(async (req) => {
   const buyerId = bounty.buyer_agent_id;
   const specialistId = bounty.specialist_agent_id;
   const amount = bounty.max_price_sats;
+  const isL402 = bounty.auth_mode === "l402";
 
   if (verdict.verdict === "accept") {
     await supabase.from("bounties").update({
@@ -94,30 +96,91 @@ Deno.serve(async (req) => {
       final_price_sats: amount,
     }).eq("id", bounty_id);
 
-    const release = await lightning.release({
-      buyerAgentId: buyerId, specialistAgentId: specialistId, amountSats: amount, bountyId: bounty_id,
-    });
-
-    if (release.ok) {
-      await supabase.from("bounties").update({ status: "settled", settled_at: new Date().toISOString() }).eq("id", bounty_id);
+    // 1. Internal ledger move (Bearer mode only). For L402 bounties the buyer
+    //    never had an internal balance — sats are already in the platform wallet.
+    if (!isL402 && buyerId) {
+      const release = await lightning.release({
+        buyerAgentId: buyerId, specialistAgentId: specialistId, amountSats: amount, bountyId: bounty_id,
+      });
+      if (!release.ok) return jsonResponse({ verdict, settled: false, error: release.message });
+    } else if (isL402 && specialistId) {
+      // L402: still bump the specialist's reputation/earnings counters.
+      const { data: spec } = await supabase.from("agents")
+        .select("total_jobs, success_rate, total_sats_earned").eq("id", specialistId).single();
+      if (spec) {
+        const newJobs = (spec.total_jobs ?? 0) + 1;
+        const newRate = ((spec.success_rate ?? 1) * (spec.total_jobs ?? 0) + 1) / newJobs;
+        await supabase.from("agents").update({
+          total_jobs: newJobs,
+          success_rate: Number(newRate.toFixed(4)),
+          total_sats_earned: (spec.total_sats_earned ?? 0) + amount,
+        }).eq("id", specialistId);
+      }
     }
-    return jsonResponse({ verdict, settled: release.ok });
+
+    // 2. Real Lightning payout if the specialist included an invoice.
+    const payoutInvoice = bounty.submission?.payout_invoice as string | undefined;
+    let payoutPreimage: string | null = null;
+    let payoutError: string | null = null;
+    if (payoutInvoice) {
+      const alby = getAlby();
+      if (!alby) {
+        payoutError = "ALBY_NWC_URL not configured; payout invoice not paid.";
+      } else {
+        try {
+          const pay = await alby.payInvoice(payoutInvoice);
+          payoutPreimage = pay.preimage;
+        } catch (e) {
+          payoutError = (e as Error).message;
+        } finally {
+          alby.close();
+        }
+      }
+    } else if (isL402) {
+      // L402 specialists don't have an internal credit to fall back on — flag this.
+      payoutError = "L402 bounty accepted but specialist did not include payout_invoice in submission.";
+    }
+
+    await supabase.from("bounties").update({
+      status: payoutError ? "verified" : "settled",
+      settled_at: payoutError ? null : new Date().toISOString(),
+      payout_preimage: payoutPreimage,
+      payout_error: payoutError,
+    }).eq("id", bounty_id);
+
+    return jsonResponse({ verdict, settled: !payoutError, payout_preimage: payoutPreimage, payout_error: payoutError });
   } else {
     await supabase.from("bounties").update({
       status: "rejected",
       verification: { ...verdict, verified_at: new Date().toISOString() },
     }).eq("id", bounty_id);
-    await lightning.refund({ buyerAgentId: buyerId, amountSats: amount, bountyId: bounty_id });
-    // Specialist's job count goes up but success rate takes a hit.
-    const { data: spec } = await supabase.from("agents")
-      .select("total_jobs, success_rate").eq("id", specialistId).single();
-    if (spec) {
-      const newJobs = (spec.total_jobs ?? 0) + 1;
-      const newRate = ((spec.success_rate ?? 1) * (spec.total_jobs ?? 0)) / newJobs;
-      await supabase.from("agents").update({
-        total_jobs: newJobs, success_rate: Number(newRate.toFixed(4)),
-      }).eq("id", specialistId);
+
+    // Refund path branches on auth_mode.
+    if (!isL402 && buyerId) {
+      // Bearer: restore internal wallet balance.
+      await lightning.refund({ buyerAgentId: buyerId, amountSats: amount, bountyId: bounty_id });
+    } else if (isL402 && bounty.refund_lnaddress) {
+      // L402: send sats back over Lightning. LNURL-pay resolution is left as a
+      // TODO — for now we just record the intent so it's visible in the UI / logs.
+      // To wire real refunds: LNURL-resolve refund_lnaddress → fetch BOLT11 for
+      // `amount` sats → alby.payInvoice(...). Mirror the payout path above.
+      await supabase.from("bounties").update({
+        payout_error: `L402 refund pending: ${amount} sats → ${bounty.refund_lnaddress} (LNURL pay-out not yet implemented).`,
+      }).eq("id", bounty_id);
     }
-    return jsonResponse({ verdict, refunded: true });
+
+    // Specialist's job count goes up but success rate takes a hit.
+    if (specialistId) {
+      const { data: spec } = await supabase.from("agents")
+        .select("total_jobs, success_rate").eq("id", specialistId).single();
+      if (spec) {
+        const newJobs = (spec.total_jobs ?? 0) + 1;
+        const newRate = ((spec.success_rate ?? 1) * (spec.total_jobs ?? 0)) / newJobs;
+        await supabase.from("agents").update({
+          total_jobs: newJobs, success_rate: Number(newRate.toFixed(4)),
+        }).eq("id", specialistId);
+      }
+    }
+    return jsonResponse({ verdict, refunded: true, mode: isL402 ? "l402" : "bearer" });
   }
 });

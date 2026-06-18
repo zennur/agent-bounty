@@ -1,16 +1,82 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Agent, Bounty } from "@/lib/types";
 import { fmtSats, fmtCompact, satsToUsd, fmtUsd, categoryLabel } from "@/lib/format";
+import { effectivePrice, reputationPremiumLabel } from "@/lib/utils";
 import { CategoryChip, ReputationBadge, StatusPill } from "@/components/Chips";
-import { ArrowLeft, Zap, Clock, Trophy, Wallet, CalendarDays } from "lucide-react";
+import { ArrowLeft, Zap, Clock, Trophy, Wallet, CalendarDays, Plus, TrendingUp } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 export default function AgentProfile() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [bounties, setBounties] = useState<(Bounty & { buyer?: Agent })[]>([]);
+  const [hireOpen, setHireOpen] = useState(false);
+  const [myAgents, setMyAgents] = useState<Agent[]>([]);
+  const [buyerAgentId, setBuyerAgentId] = useState<string>("");
+  const [title, setTitle] = useState("");
+  const [desc, setDesc] = useState("");
+  const [price, setPrice] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!user) { setMyAgents([]); return; }
+    (async () => {
+      const { data } = await supabase
+        .from("agents_owner_view")
+        .select("*")
+        .eq("user_id", user.id);
+      const list = ((data ?? []) as unknown) as Agent[];
+      // Don't allow hiring yourself
+      const filtered = list.filter((a) => a.id !== id);
+      setMyAgents(filtered);
+      if (filtered[0]) setBuyerAgentId(filtered[0].id);
+    })();
+  }, [user, id]);
+
+  useEffect(() => {
+    if (agent) setPrice(agent.base_price_sats);
+  }, [agent]);
+
+  const submitHire = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agent) return;
+    if (!user) { navigate("/auth"); return; }
+    if (!buyerAgentId) {
+      toast.error("Register an agent first to hire others.");
+      return;
+    }
+    if (title.trim().length < 3) {
+      toast.error("Title is too short");
+      return;
+    }
+    setBusy(true);
+    const category = agent.categories[0] ?? "research";
+    const { error } = await supabase.from("bounties").insert({
+      buyer_agent_id: buyerAgentId,
+      specialist_agent_id: agent.id,
+      title: title.trim(),
+      description: desc.trim() || null,
+      category,
+      max_price_sats: price,
+      status: "open",
+    });
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Bounty sent to ${agent.name}.`);
+    setHireOpen(false);
+    setTitle("");
+    setDesc("");
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -33,7 +99,7 @@ export default function AgentProfile() {
 
   return (
     <div className="px-8 py-8 max-w-[1400px] mx-auto">
-      <Link to="/" className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-primary mb-6 uppercase tracking-widest">
+      <Link to="/marketplace" className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-primary mb-6 uppercase tracking-widest">
         <ArrowLeft className="h-3 w-3" /> Back to marketplace
       </Link>
 
@@ -57,21 +123,87 @@ export default function AgentProfile() {
               <span className="text-primary">⚡</span> {agent.runtime === "hosted" ? "Hosted by GroundTruth" : "External agent"}
             </div>
           </div>
-          <button className="bg-primary text-primary-foreground font-display text-sm px-5 py-3 hover:shadow-amber transition-all flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (!user) { navigate("/auth"); return; }
+              setHireOpen(true);
+            }}
+            className="bg-primary text-primary-foreground font-display text-sm px-5 py-3 hover:shadow-amber transition-all flex items-center gap-2"
+          >
             <Zap className="h-4 w-4 fill-current" />
             HIRE DIRECTLY
           </button>
         </div>
       </div>
 
-      {/* Stats grid */}
+      {(() => {
+        const eff = effectivePrice(agent.base_price_sats, agent.reputation);
+        const premium = reputationPremiumLabel(agent.reputation);
+        return (
+      <>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-border border border-border mb-6">
-        <Stat icon={<Wallet className="h-4 w-4" />} label="Asking price" value={`${fmtSats(agent.base_price_sats)} sats`} sub={fmtUsd(satsToUsd(agent.base_price_sats))} />
+        <Stat
+          icon={<Wallet className="h-4 w-4" />}
+          label="Asking price"
+          value={`${fmtSats(eff)} sats`}
+          sub={`Base ${fmtSats(agent.base_price_sats)} · ${fmtUsd(satsToUsd(eff))}`}
+        />
         <Stat icon={<Trophy className="h-4 w-4" />} label="Total jobs" value={fmtCompact(agent.total_jobs)} sub={`${(agent.success_rate * 100).toFixed(1)}% success`} />
         <Stat icon={<Clock className="h-4 w-4" />} label="Avg time" value={`${agent.avg_completion_seconds}s`} sub="median" />
         <Stat icon={<Zap className="h-4 w-4" />} label="Sats earned" value={fmtCompact(agent.total_sats_earned)} sub={fmtUsd(satsToUsd(agent.total_sats_earned))} accent />
         <Stat icon={<CalendarDays className="h-4 w-4" />} label="Joined" value={new Date(agent.created_at).toLocaleDateString(undefined, { month: "short", year: "numeric" })} sub="active" />
       </div>
+
+      {/* Reputation premium */}
+      <div className="bg-surface border border-border p-5 mb-6">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-3">
+          <TrendingUp className="h-3 w-3 text-primary" /> Reputation Premium
+        </div>
+        <div className="flex flex-wrap items-baseline gap-3 mb-3">
+          <div className="font-display text-2xl tabular">
+            <span className="text-muted-foreground">Base </span>
+            <span>{fmtSats(agent.base_price_sats)}</span>
+            <span className="text-muted-foreground mx-2">|</span>
+            <span className="text-muted-foreground">Effective </span>
+            <span className="text-primary">{fmtSats(eff)}</span>
+            <span className="text-xs text-muted-foreground ml-1">sats</span>
+          </div>
+          {premium && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-primary/40 bg-primary/10 text-primary text-[10px] tracking-widest uppercase">
+              <Zap className="h-3 w-3 fill-current" />
+              {premium}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed mb-4">
+          {premium
+            ? `This agent's track record earns them a ${premium.replace("+", "").replace(" Premium", "")} premium over base price. `
+            : "This agent has not yet reached the premium threshold (60+ reputation). "}
+          Agents that consistently deliver quality work command higher rates — the market rewards performance automatically.
+        </p>
+        <div>
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
+            <span>Reputation</span>
+            <span className="tabular text-foreground">{agent.reputation}/100</span>
+          </div>
+          <div className="relative h-2 bg-background border border-border overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 bg-gradient-to-r from-primary/60 to-primary shadow-amber"
+              style={{ width: `${Math.max(0, Math.min(100, agent.reputation))}%` }}
+            />
+            {/* Threshold ticks */}
+            {[60, 80, 90].map((t) => (
+              <div key={t} className="absolute inset-y-0 w-px bg-border/80" style={{ left: `${t}%` }} />
+            ))}
+          </div>
+          <div className="flex justify-between text-[9px] text-muted-foreground tabular mt-1">
+            <span>0</span><span>60 (+10%)</span><span>80 (+25%)</span><span>90 (+50%)</span>
+          </div>
+        </div>
+      </div>
+      </>
+        );
+      })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent jobs */}
@@ -108,6 +240,85 @@ export default function AgentProfile() {
           </pre>
         </div>
       </div>
+
+      <Dialog open={hireOpen} onOpenChange={setHireOpen}>
+        <DialogContent className="bg-surface border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display uppercase tracking-widest text-base flex items-center gap-2">
+              <Zap className="h-4 w-4 text-primary fill-current" /> Hire {agent.name}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Posts a bounty assigned directly to this specialist. They'll be notified instantly.
+            </DialogDescription>
+          </DialogHeader>
+
+          {myAgents.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-4">
+              You need to register a buyer agent first.{" "}
+              <Link to="/register" className="text-primary underline">Register one →</Link>
+            </div>
+          ) : (
+            <form onSubmit={submitHire} className="space-y-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Acting as</div>
+                <select
+                  value={buyerAgentId}
+                  onChange={(e) => setBuyerAgentId(e.target.value)}
+                  className="w-full bg-background border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                >
+                  {myAgents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.avatar} {a.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Task title</div>
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={`e.g. ${categoryLabel(agent.categories[0] ?? "research")} this for me`}
+                  className="w-full bg-background border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                  maxLength={200}
+                />
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Details (optional)</div>
+                <textarea
+                  value={desc}
+                  onChange={(e) => setDesc(e.target.value)}
+                  rows={4}
+                  placeholder="Paste content, links, or context for the specialist."
+                  className="w-full bg-background border border-border px-3 py-2 text-xs font-mono leading-relaxed resize-y focus:border-primary focus:outline-none"
+                  maxLength={2000}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-3 items-end">
+                <div className="col-span-2">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
+                    Max price (sats) · asking {fmtSats(agent.base_price_sats)}
+                  </div>
+                  <input
+                    type="number"
+                    min={10}
+                    max={1_000_000}
+                    value={price}
+                    onChange={(e) => setPrice(Number(e.target.value))}
+                    className="w-full bg-background border border-border px-3 py-2 font-display text-primary tabular text-lg focus:border-primary focus:outline-none"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="bg-primary text-primary-foreground font-display px-4 py-2.5 hover:shadow-amber transition flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+                >
+                  {busy ? <Zap className="h-4 w-4 animate-bolt" /> : <Plus className="h-4 w-4" />}
+                  {busy ? "SENDING..." : "SEND"}
+                </button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
